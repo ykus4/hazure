@@ -1,0 +1,154 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hazure"
+version = "0.1.0.dev0"
+description = "A lightweight toolkit for rule-based and unsupervised anomaly detection in time series"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Yoshiki Kusama" }]
+keywords = [
+    "anomaly detection",
+    "outlier detection",
+    "time series",
+    "change point detection",
+    "unsupervised",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
+]
+
+# Core stays deliberately tiny: a dataframe-agnostic I/O layer and numpy.
+# Everything else is an extra.
+dependencies = ["narwhals>=2.24", "numpy>=2.0"]
+
+[project.optional-dependencies]
+pandas = ["pandas>=2.0"]
+polars = ["polars>=1.0"]
+pyarrow = ["pyarrow>=15"]
+stats = ["scipy>=1.14", "statsmodels>=0.14"]   # ESD test, STL/MSTL
+sklearn = ["scikit-learn>=1.5"]                # PCA, regression, clustering adapters
+mp = ["stumpy>=1.13"]                          # Matrix Profile / DAMP
+cpd = ["ruptures>=1.1"]                        # BinSeg / Window / Dynp (python <3.14 only)
+viz = ["matplotlib>=3.8"]
+all = [
+    "hazure[pandas,polars,pyarrow,stats,sklearn,mp,viz]",
+]
+
+[project.urls]
+Homepage = "https://github.com/ykus4/hazure"
+Repository = "https://github.com/ykus4/hazure"
+Issues = "https://github.com/ykus4/hazure/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "hypothesis>=6.120",
+    "mypy>=1.14",
+    "ruff>=0.9",
+    "pandas>=2.0",
+    "polars>=1.0",
+    "pyarrow>=15",
+    "scipy>=1.14",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hazure"]
+
+# ---------------------------------------------------------------------------
+# ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "A",      # flake8-builtins
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+    "TCH",    # flake8-type-checking
+    "RUF",    # ruff-specific
+    "NPY",    # numpy-specific
+    "D",      # pydocstyle
+]
+ignore = [
+    "D105",   # missing docstring in magic method
+    "D107",   # missing docstring in __init__ (documented on the class)
+    "N803",   # argument name should be lowercase (X for design matrices)
+    "N806",   # variable in function should be lowercase (X, Q1, Q3)
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D", "N802"]
+"scripts/*" = ["D", "T201"]
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src/hazure"]
+plugins = []
+warn_unreachable = true
+disallow_any_generics = true
+enable_error_code = ["redundant-expr", "possibly-undefined", "truthy-bool"]
+
+[[tool.mypy.overrides]]
+module = ["stumpy.*", "ruptures.*", "statsmodels.*", "sklearn.*"]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+]
+markers = [
+    "slow: marks tests as slow",
+    "golden: parity tests against recorded ADTK v0.6.2 output",
+]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["src/hazure"]
+branch = true
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@overload",
+]

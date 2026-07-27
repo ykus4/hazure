@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: "1"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --dev
+      - name: ruff check
+        run: uv run ruff check .
+      - name: ruff format --check
+        run: uv run ruff format --check .
+      - name: mypy
+        run: uv run mypy
+
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        include:
+          - os: macos-latest
+            python-version: "3.13"
+          - os: windows-latest
+            python-version: "3.13"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --dev --extra pandas --extra polars --extra pyarrow --extra stats
+      - name: pytest
+        run: uv run pytest --cov --cov-report=xml
+      - uses: codecov/codecov-action@v5
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  # The core promise is "narwhals + numpy only". Guard it: importing hazure
+  # must not require pandas, polars, scipy, sklearn or matplotlib.
+  minimal-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --no-dev --no-default-groups
+      - name: import without optional backends
+        run: |
+          uv run python -c "
+          import hazure
+          import sys
+          forbidden = {'pandas', 'polars', 'pyarrow', 'scipy', 'sklearn', 'matplotlib', 'statsmodels'}
+          leaked = forbidden & set(sys.modules)
+          assert not leaked, f'core import pulled in optional deps: {leaked}'
+          print('ok:', hazure.__version__)
+          "
