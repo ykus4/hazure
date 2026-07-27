@@ -55,6 +55,11 @@ Repository = "https://github.com/ykus4/hazure"
 Issues = "https://github.com/ykus4/hazure/issues"
 
 [dependency-groups]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.27",
+]
 dev = [
     "pytest>=8.3",
     "pytest-cov>=6.0",
@@ -65,6 +70,7 @@ dev = [
     "polars>=1.0",
     "pyarrow>=15",
     "scipy>=1.14",
+    "matplotlib>=3.8",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -138,7 +144,6 @@ addopts = [
 ]
 markers = [
     "slow: marks tests as slow",
-    "golden: parity tests against recorded ADTK v0.6.2 output",
 ]
 filterwarnings = ["error"]
 

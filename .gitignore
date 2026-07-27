@@ -217,5 +217,5 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Reference checkout of the abandoned adtk, used only to generate parity fixtures.
-.venv-adtk-ref/
+# Scratch virtual environments alongside the project's own .venv
+.venv-*/

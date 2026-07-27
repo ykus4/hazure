@@ -46,6 +46,11 @@ _UNIT_TO_NS: dict[str, int] = {
 
 _TimeUnit = Literal["s", "ms", "us", "ns"]
 
+#: Backend recorded for a series built from raw arrays, where there is no native
+#: object to reconstruct. numpy is the only dependency such a series has, and
+#: emitting it must not silently acquire another.
+NO_BACKEND = "arrays"
+
 
 @dataclass(frozen=True, slots=True)
 class Origin:
@@ -84,9 +89,15 @@ class Origin:
 
     @classmethod
     def default(cls) -> Origin:
-        """Return the origin used for series built directly from numpy arrays."""
+        """Return the origin used for series built directly from numpy arrays.
+
+        Its backend is :data:`NO_BACKEND`, because there was no native object to
+        come back to. Emitting such a series returns the ``TimeSeries`` itself
+        rather than reaching for a dataframe library the caller may not have
+        installed — see :meth:`TimeSeries.to_native`.
+        """
         return cls(
-            backend="pandas",
+            backend=NO_BACKEND,
             container="frame",
             time_on_index=True,
             time_name="time",
@@ -409,6 +420,11 @@ class TimeSeries:
     def select(self, columns: Sequence[str] | str) -> TimeSeries:
         """Return a series restricted to ``columns``, in the order given.
 
+        Provenance is carried through unchanged. Narrowing to one column does not
+        turn a frame the caller passed into a series they did not: whether the
+        result is emitted as a series depends on what arrived, not on how many
+        columns happen to be left mid-computation.
+
         Parameters
         ----------
         columns
@@ -430,13 +446,12 @@ class TimeSeries:
             msg = f"Unknown column(s) {missing}; available: {list(self.columns)}."
             raise KeyError(msg)
         index = [self.columns.index(c) for c in names]
-        container = "series" if len(names) == 1 else self.origin.container
         return TimeSeries(
             time=self.time,
             values=np.ascontiguousarray(self.values[:, index]),
             columns=names,
             freq=self.freq,
-            origin=replace(self.origin, container=container),
+            origin=self.origin,
         )
 
     def iter_columns(self) -> Iterator[TimeSeries]:
@@ -533,19 +548,27 @@ class TimeSeries:
         time column in its original position and name. A single-column series
         that arrived as a pandas Series leaves as a pandas Series.
 
+        A series built by :meth:`from_arrays` has no native counterpart, so it
+        returns *itself*. Building a dataframe would mean importing a library the
+        caller never asked for — numpy is the only dependency such a series has,
+        and emitting it should not add one. Pass ``backend`` to opt in.
+
         Parameters
         ----------
         backend
-            Emit into this backend instead of the original one. Useful for
-            series built via :meth:`from_arrays`.
+            Emit into this backend instead of the original one, e.g.
+            ``"pandas"`` or ``"polars"``.
 
         Returns
         -------
         Any
-            A native dataframe or series.
+            A native dataframe or series, or this ``TimeSeries`` when it was
+            built from arrays and no ``backend`` was requested.
         """
         origin = self.origin
         target = backend or origin.backend
+        if target == NO_BACKEND:
+            return self
 
         stamps = _from_epoch_ns(self.time, origin.time_unit)
         payload: dict[str, NDArray[Any]] = {origin.time_name: stamps}
@@ -581,6 +604,21 @@ class TimeSeries:
     def to_numpy(self) -> NDArray[np.float64]:
         """Return the values as a 2-D float64 array."""
         return self.values
+
+    def __getitem__(self, name: str) -> NDArray[np.float64]:
+        """Return one column as a 1-D float64 array.
+
+        Parameters
+        ----------
+        name
+            Column name.
+
+        Returns
+        -------
+        numpy.ndarray
+            The column's values.
+        """
+        return self.column_values(name)
 
     def column_values(self, name: str) -> NDArray[np.float64]:
         """Return one column as a 1-D float64 array.

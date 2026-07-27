@@ -36,12 +36,20 @@ class Configurable:
     def _parameter_names(cls) -> tuple[str, ...]:
         """Return the constructor's parameter names, in declaration order.
 
+        A component with nothing to configure need not define ``__init__`` at
+        all, and reports no parameters.
+
         Raises
         ------
         TypeError
             The constructor takes ``*args``, which would make parameters
             impossible to name and therefore impossible to round-trip.
         """
+        if cls.__init__ is object.__init__:
+            # No constructor anywhere in the hierarchy, so nothing to configure.
+            # Inspecting object.__init__ would report its (*args, **kwargs).
+            return ()
+
         signature = inspect.signature(cls.__init__)
         names: list[str] = []
         for name, parameter in signature.parameters.items():

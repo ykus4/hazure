@@ -21,7 +21,12 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - run: uv sync --all-extras --dev
+      # Not --all-extras: stumpy drags in numba, whose wheels lag new Python
+      # releases, and mypy is configured to tolerate the absent stubs anyway.
+      - run: >-
+          uv sync --dev
+          --extra pandas --extra polars --extra pyarrow
+          --extra stats --extra sklearn --extra viz
       - name: ruff check
         run: uv run ruff check .
       - name: ruff format --check
@@ -47,7 +52,10 @@ jobs:
         with:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
-      - run: uv sync --dev --extra pandas --extra polars --extra pyarrow --extra stats
+      - run: >-
+          uv sync --dev
+          --extra pandas --extra polars --extra pyarrow
+          --extra stats --extra sklearn --extra viz
       - name: pytest
         run: uv run pytest --cov --cov-report=xml
       - uses: codecov/codecov-action@v5
@@ -55,8 +63,28 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  # The core promise is "narwhals + numpy only". Guard it: importing hazure
-  # must not require pandas, polars, scipy, sklearn or matplotlib.
+  # The adapters over stumpy and ruptures skip themselves when the extra is
+  # absent, so exercise them somewhere. Pinned to 3.12: numba's wheels lag new
+  # Python releases and ruptures caps itself below 3.14.
+  heavy-extras:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: >-
+          uv sync --dev
+          --extra pandas --extra polars --extra pyarrow
+          --extra stats --extra mp --extra cpd
+      - name: pytest
+        run: uv run pytest -q
+
+  # The core promise is "narwhals + numpy only". Importing is not enough to prove
+  # it: a detector that emits its result through a dataframe would only fail on
+  # the way out. So this runs detection end to end and checks nothing optional
+  # got imported along the way.
   minimal-deps:
     runs-on: ubuntu-latest
     steps:
@@ -65,13 +93,46 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --no-dev --no-default-groups
-      - name: import without optional backends
+      - name: detect end to end without optional dependencies
         run: |
           uv run python -c "
-          import hazure
           import sys
-          forbidden = {'pandas', 'polars', 'pyarrow', 'scipy', 'sklearn', 'matplotlib', 'statsmodels'}
+          import numpy as np
+          import hazure
+          from hazure import (
+              Graph, HampelDetector, LevelShiftDetector, Node, OrAggregator,
+              PeltDetector, SpectralResidualDetector, SpikeDetector, TimeSeries,
+          )
+
+          forbidden = {'pandas', 'polars', 'pyarrow', 'scipy', 'sklearn',
+                       'matplotlib', 'statsmodels', 'stumpy', 'ruptures', 'numba'}
           leaked = forbidden & set(sys.modules)
-          assert not leaked, f'core import pulled in optional deps: {leaked}'
+          assert not leaked, f'importing hazure pulled in {leaked}'
+
+          time = np.arange(400, dtype=np.int64) * 3_600_000_000_000
+          values = np.zeros(400)
+          values[200] = 9.0
+          values[300:] += 4.0
+          series = TimeSeries.from_arrays(time, values)
+
+          for detector in (
+              SpikeDetector(window=24),
+              LevelShiftDetector(window=12),
+              HampelDetector(window=25),
+              PeltDetector(),
+              SpectralResidualDetector(),
+          ):
+              result = detector.fit_detect(series)
+              assert result.n_rows == 400, type(detector).__name__
+
+          graph = Graph([
+              Node('spike', SpikeDetector(window=24)),
+              Node('shift', LevelShiftDetector(window=12)),
+              Node('either', OrAggregator(), inputs=('spike', 'shift')),
+          ])
+          assert graph.fit_detect(series).n_rows == 400
+
+          leaked = forbidden & set(sys.modules)
+          assert not leaked, f'detecting pulled in {leaked}'
           print('ok:', hazure.__version__)
           "
