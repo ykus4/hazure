@@ -1,0 +1,26 @@
+version: 2
+
+# Grouped and monthly, deliberately: an update to a linter or a test runner is
+# worth taking, and worth taking in one pull request rather than nine.
+#
+# Not covered here: the hook revisions in .pre-commit-config.yaml, which
+# Dependabot cannot read. Run `uv run pre-commit autoupdate` when the ruff
+# version in the dev group moves, so the hook and the CI job stay on one ruff.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      runtime:
+        dependency-type: production
+      tooling:
+        dependency-type: development
