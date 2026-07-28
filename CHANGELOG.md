@@ -28,6 +28,10 @@ Everything below is the initial development work; nothing has been released yet.
 - **Further method families** in `hazure.methods`: spectral residual, the Hampel
   filter, a rolling quantile band, PELT segmentation with a `ruptures` adapter,
   matrix-profile discords, and STL / MSTL residuals.
+- **How late, and how good the ranking is.** `detection_delay` and
+  `detection_delays` say when an alert arrived rather than only whether it did,
+  and `average_precision` and `roc_auc` score a scorer without a fence being
+  chosen first.
 - **Composition.** `Pipeline` for a chain, `Graph` for a directed acyclic graph
   of components, and the `And` / `Or` / `Vote` / customised aggregators.
 - **Events and evaluation.** `Events` as closed intervals in UTC nanoseconds,
