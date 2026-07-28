@@ -66,7 +66,8 @@ thing.
 
 ## `hazure.evaluation`
 
-Point- and event-based metrics, and time-ordered folds to compute them over.
+Point- and event-based metrics, how late each alert was, threshold-free ranking
+quality, and time-ordered folds to compute any of them over.
 
 ::: hazure.evaluation
 

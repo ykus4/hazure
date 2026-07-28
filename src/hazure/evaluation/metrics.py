@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 import numpy as np
 
@@ -10,6 +10,8 @@ from hazure import TimeSeries
 from hazure.events import Events
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from numpy.typing import NDArray
 
 __all__ = [
@@ -272,32 +274,55 @@ def iou(y_true: Any, y_pred: Any) -> float | dict[str, float]:
 _EVENT_LIKE = (Events, list, tuple)
 
 
+#: What one kernel returns. A metric yields a float, but :func:`detection_delays`
+#: yields one delay per event, and both travel through this same dispatch.
+_Result = TypeVar("_Result")
+
+
 def _dispatch(
     y_true: Any,
     y_pred: Any,
-    on_points: Any,
-    on_events: Any,
+    on_points: Callable[..., _Result],
+    on_events: Callable[..., _Result],
+    *,
+    align: Callable[[TimeSeries, TimeSeries], tuple[Any, ...]] | None = None,
+    guess_name: str = "y_pred",
     **options: Any,
-) -> float | dict[str, float]:
+) -> _Result | dict[str, _Result]:
     """Route one pair of inputs to the point-based or event-based kernel.
 
     Recursion happens here rather than inside each metric, which is what keeps
     ``options`` intact all the way down to the leaves.
+
+    ``align`` decides what a pair of label series is reduced to before the
+    point-based kernel sees it, and defaults to :func:`_aligned`. ``guess_name``
+    only names the second argument in error messages, since not every caller
+    calls it ``y_pred``.
     """
+    aligner = _aligned if align is None else align
     true_kind = _kind(y_true)
     pred_kind = _kind(y_pred)
     if true_kind != pred_kind:
         msg = (
-            f"y_true is {true_kind} but y_pred is {pred_kind}. Both must be "
-            f"label series, both Events (or lists of intervals), or both dicts."
+            f"y_true is {true_kind} but {guess_name} is {pred_kind}. Both must "
+            f"be label series, both Events (or lists of intervals), or both "
+            f"dicts."
         )
         raise TypeError(msg)
 
     if true_kind == "mapping":
-        _check_keys(set(y_true), set(y_pred), "key")
-        scores: dict[str, float] = {}
+        _check_keys(set(y_true), set(y_pred), "key", guess_name)
+        scores: dict[str, _Result] = {}
         for key in y_true:
-            score = _dispatch(y_true[key], y_pred[key], on_points, on_events, **options)
+            score = _dispatch(
+                y_true[key],
+                y_pred[key],
+                on_points,
+                on_events,
+                align=align,
+                guess_name=guess_name,
+                **options,
+            )
             if isinstance(score, dict):
                 msg = (
                     f"Key {key!r} must hold a single anomaly type, but it "
@@ -309,21 +334,17 @@ def _dispatch(
         return scores
 
     if true_kind == "events":
-        return float(
-            on_events(Events.from_any(y_true), Events.from_any(y_pred), **options)
-        )
+        return on_events(Events.from_any(y_true), Events.from_any(y_pred), **options)
 
     truth = TimeSeries.from_any(y_true)
     guess = TimeSeries.from_any(y_pred)
     if truth.n_columns > 1 or guess.n_columns > 1:
-        _check_keys(set(truth.columns), set(guess.columns), "column")
+        _check_keys(set(truth.columns), set(guess.columns), "column", guess_name)
         return {
-            name: float(
-                on_points(*_aligned(truth.select(name), guess.select(name)), **options)
-            )
+            name: on_points(*aligner(truth.select(name), guess.select(name)), **options)
             for name in truth.columns
         }
-    return float(on_points(*_aligned(truth, guess), **options))
+    return on_points(*aligner(truth, guess), **options)
 
 
 def _kind(value: Any) -> str:
@@ -335,24 +356,30 @@ def _kind(value: Any) -> str:
     return "labels"
 
 
-def _check_keys(left: set[str], right: set[str], noun: str) -> None:
+def _check_keys(
+    left: set[str], right: set[str], noun: str, guess_name: str = "y_pred"
+) -> None:
     """Require both inputs to describe the same set of anomaly types."""
     if left != right:
         msg = (
-            f"y_true and y_pred must describe the same {noun}s, but "
+            f"y_true and {guess_name} must describe the same {noun}s, but "
             f"{sorted(left ^ right)} appear in only one of them."
         )
         raise ValueError(msg)
 
 
-def _aligned(
+def _joined(
     truth: TimeSeries, guess: TimeSeries
-) -> tuple[NDArray[np.bool_], NDArray[np.bool_]]:
-    """Return the two label columns as booleans on one shared time axis.
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Return the two columns' raw values on one shared time axis.
 
     The join is the check: an outer join on time only grows when the two axes
     disagree, so a longer result means the caller was about to compare samples
     that never lined up.
+
+    Values come back untouched rather than as booleans, because the second
+    column is not always a label — :mod:`hazure.evaluation.ranking` reads a
+    continuous score through here.
     """
     joined = truth.wrap(truth.values, [_TRUE_COLUMN]).join(
         guess.wrap(guess.values, [_PRED_COLUMN])
@@ -366,9 +393,17 @@ def _aligned(
         )
         raise ValueError(msg)
     return (
-        _binary(joined.column_values(_TRUE_COLUMN)),
-        _binary(joined.column_values(_PRED_COLUMN)),
+        joined.column_values(_TRUE_COLUMN),
+        joined.column_values(_PRED_COLUMN),
     )
+
+
+def _aligned(
+    truth: TimeSeries, guess: TimeSeries
+) -> tuple[NDArray[np.bool_], NDArray[np.bool_]]:
+    """Return the two label columns as booleans on one shared time axis."""
+    left, right = _joined(truth, guess)
+    return _binary(left), _binary(right)
 
 
 def _binary(values: NDArray[np.float64]) -> NDArray[np.bool_]:
