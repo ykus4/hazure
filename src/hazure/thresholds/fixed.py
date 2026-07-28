@@ -6,16 +6,16 @@ import math
 from typing import TYPE_CHECKING, ClassVar
 
 from hazure import BaseThreshold
+from hazure.thresholds.fence import _label, _require_a_bound
 
 if TYPE_CHECKING:
     from hazure import TimeSeries
+
 
 __all__ = [
     "FixedThreshold",
 ]
 
-
-from hazure.thresholds.fence import _label, _require_a_bound
 
 # ---------------------------------------------------------------------------
 # thresholds

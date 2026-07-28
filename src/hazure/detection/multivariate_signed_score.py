@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
 
+from hazure.detection.multivariate_score import _as_frame_label
+from hazure.detection.signed_score import SignedScoreDetector
+
 if TYPE_CHECKING:
     from hazure import TimeSeries
+
 
 __all__ = [
     "MultivariateSignedScoreDetector",
 ]
-
-
-from hazure.detection.multivariate_score import _as_frame_label
-from hazure.detection.signed_score import SignedScoreDetector
 
 
 class MultivariateSignedScoreDetector(SignedScoreDetector):

@@ -18,6 +18,7 @@ import pytest
 
 from hazure import TimeSeries
 from hazure.methods import (
+    DampDetector,
     DampScorer,
     HampelDetector,
     HampelScorer,
@@ -27,7 +28,9 @@ from hazure.methods import (
     MstlResidualScorer,
     PeltDetector,
     PeltScorer,
+    RollingQuantileDetector,
     RollingQuantileScorer,
+    RupturesDetector,
     RupturesScorer,
     SpectralResidualDetector,
     SpectralResidualScorer,
@@ -113,7 +116,7 @@ def flagged(result: Any) -> NDArray[np.int64]:
 
 
 # ---------------------------------------------------------------------------
-# spectral.py
+# spectral residual
 # ---------------------------------------------------------------------------
 
 
@@ -174,7 +177,7 @@ def test_the_spectral_residual_detector_returns_binary_labels() -> None:
 
 
 # ---------------------------------------------------------------------------
-# robust.py
+# local order statistics
 # ---------------------------------------------------------------------------
 
 
@@ -252,8 +255,35 @@ def test_the_rolling_quantile_scorer_rejects_a_bound_that_is_not_a_quantile() ->
         RollingQuantileScorer(window=5, high=1.5)
 
 
+def test_the_rolling_quantile_detector_flags_the_break_in_a_drift() -> None:
+    values = np.arange(40.0) + np.tile([0.0, 0.5, -0.5, 0.2], 10)
+    values[26] += 12.0
+    labels = RollingQuantileDetector(window=10).fit_detect(series(values))
+    assert list(flagged(labels)) == [26]
+
+
+def test_the_rolling_quantile_detector_does_not_flag_an_ordinary_drift() -> None:
+    # The window trails and includes the point being scored, so on a rising
+    # series the newest observation is routinely its own window's maximum and
+    # leaves the band by a little. Reporting every such excursion would flag
+    # nearly half of this series; the fitted fence is what stops it.
+    values = np.arange(40.0) + np.tile([0.0, 0.5, -0.5, 0.2], 10)
+    ts = series(values)
+    excursions = numbers(RollingQuantileScorer(window=10).score(ts))
+    assert (np.nan_to_num(excursions) > 0.0).sum() > 10
+    assert list(flagged(RollingQuantileDetector(window=10).fit_detect(ts))) == []
+
+
+def test_the_rolling_quantile_detector_returns_binary_labels() -> None:
+    ts = series(sine(200))
+    labels = RollingQuantileDetector(window=24).fit(ts).run(ts)
+    assert labels.n_rows == 200
+    assert labels.columns == ("x",)
+    assert set(np.unique(numbers(labels)[23:])) <= {0.0, 1.0}
+
+
 # ---------------------------------------------------------------------------
-# changepoint.py
+# change-point segmentation
 # ---------------------------------------------------------------------------
 
 
@@ -384,8 +414,21 @@ def test_the_ruptures_scorer_rejects_an_unknown_search_strategy() -> None:
         RupturesScorer(model="wavelet")
 
 
+def test_the_ruptures_detector_flags_the_change_it_was_asked_for() -> None:
+    pytest.importorskip("ruptures")
+    labels = RupturesDetector(model="dynp", n_bkps=1).fit_detect(series(step(at=60)))
+    assert list(flagged(labels)) == [60]
+
+
+def test_the_ruptures_detector_rejects_an_unknown_strategy_without_ruptures() -> None:
+    # Validation precedes the lazy import, so this raises whether or not the
+    # extra is installed.
+    with pytest.raises(ValueError, match="model='wavelet'"):
+        RupturesDetector(model="wavelet")
+
+
 # ---------------------------------------------------------------------------
-# motif.py
+# matrix profile
 # ---------------------------------------------------------------------------
 
 
@@ -441,8 +484,35 @@ def test_the_damp_scorer_peaks_on_the_first_sight_of_the_discord() -> None:
     assert abs(flat_argmax(scores) - 200) < 20
 
 
+def test_the_damp_detector_flags_the_first_occurrence_of_a_repeated_shape() -> None:
+    pytest.importorskip("stumpy")
+    # The same odd stretch twice: a full matrix profile explains each away with
+    # the other, while scoring against the past alone leaves the first unmatched.
+    values = discord()
+    values[300:320] = values[200:220]
+    positions = flagged(DampDetector(window=20).fit_detect(series(values)))
+    assert positions.size > 0
+    assert positions.min() >= 200 - 19
+    assert positions.max() <= 219 + 19
+
+
+def test_the_damp_detector_withholds_judgement_over_the_warm_up() -> None:
+    pytest.importorskip("stumpy")
+    labels = numbers(DampDetector(window=20).fit_detect(series(discord())))
+    assert np.isnan(labels[:40]).all()
+    assert not np.isnan(labels[60:]).any()
+
+
+def test_the_matrix_profile_detector_passes_normalize_to_its_scorer() -> None:
+    # No stumpy needed: the pairing is built at construction, the backend is
+    # imported only when a series is scored.
+    detector = MatrixProfileDetector(window=20, normalize=False)
+    assert detector.scorer.normalize is False
+    assert MatrixProfileDetector(window=20).scorer.normalize is True
+
+
 # ---------------------------------------------------------------------------
-# stl.py
+# seasonal-trend decomposition
 # ---------------------------------------------------------------------------
 
 

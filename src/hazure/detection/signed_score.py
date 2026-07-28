@@ -6,16 +6,16 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from hazure.detection.score import ScoreDetector
+from hazure.detection.side import Side, check_side
+
 if TYPE_CHECKING:
     from hazure import BaseScorer, BaseThreshold, TimeSeries
+
 
 __all__ = [
     "SignedScoreDetector",
 ]
-
-
-from hazure.detection.score import ScoreDetector
-from hazure.detection.side import Side, check_side
 
 
 class SignedScoreDetector(ScoreDetector):

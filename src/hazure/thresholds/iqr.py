@@ -8,16 +8,15 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from hazure import BaseThreshold
+from hazure.thresholds.fence import FactorSpec, _bound, _factors, _label, _valid
 
 if TYPE_CHECKING:
     from hazure import TimeSeries
 
+
 __all__ = [
     "IqrThreshold",
 ]
-
-
-from hazure.thresholds.fence import FactorSpec, _bound, _factors, _label, _valid
 
 
 class IqrThreshold(BaseThreshold):

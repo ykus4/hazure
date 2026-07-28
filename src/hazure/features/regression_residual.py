@@ -7,18 +7,17 @@ from typing import TYPE_CHECKING, ClassVar
 import numpy as np
 
 from hazure import BaseTransformer
+from hazure._core.series import complete_rows
+from hazure.features.ordinary_least_squares import OrdinaryLeastSquares
 
 if TYPE_CHECKING:
     from hazure import TimeSeries
     from hazure.features.regressor import Regressor
 
+
 __all__ = [
     "RegressionResidual",
 ]
-
-
-from hazure._core.series import complete_rows
-from hazure.features.ordinary_least_squares import OrdinaryLeastSquares
 
 
 class RegressionResidual(BaseTransformer):

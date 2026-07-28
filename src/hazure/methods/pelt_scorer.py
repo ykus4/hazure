@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from hazure.methods.breakpoint_scorer import Cost, _BreakpointScorer
 from hazure.thresholds import MAD_SCALE
 
 if TYPE_CHECKING:
@@ -17,9 +18,6 @@ if TYPE_CHECKING:
 __all__ = [
     "PeltScorer",
 ]
-
-
-from hazure.methods.breakpoint_scorer import Cost, _BreakpointScorer
 
 
 class PeltScorer(_BreakpointScorer):

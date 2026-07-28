@@ -106,6 +106,21 @@ with, so the score understates it. Widening the window dilutes that; excluding
 the point would remove it, at the cost of a band that reacts to a level change
 one window later.
 
+That same inclusion is why `RollingQuantileDetector` fits an IQR fence on the
+excursions rather than reporting every point that leaves the band. On a series
+with a trend the newest observation is routinely the largest in its own window,
+and so sits *at* the band's edge and a little outside it. Treating any non-zero
+excursion as an anomaly flags a sizeable fraction of a plainly ordinary series —
+17 of 40 points on the drifting series in the class's own docstring. The
+excursions are a distribution like any other; what matters is one out of
+proportion to the rest.
+
+The band and the fence therefore do different jobs: the quantiles decide what
+counts as an excursion at all, and `factor` decides which excursions are worth
+reporting. Widen the band far enough and every excursion shrinks toward zero,
+leaving the fence nothing to separate — a window spanning most of the series
+flags nothing, which is correct.
+
 ## Change-point segmentation
 
 Different question again: not *which points are unusual* but *where does the
@@ -189,7 +204,7 @@ Breakpoints are stored as **timestamps** and relocated by timestamp when scoring
 a different series, not by position, so an axis that starts elsewhere still lines
 up.
 
-### RupturesScorer
+### RupturesScorer and RupturesDetector
 
 An adapter over [ruptures](https://centre-borelli.github.io/ruptures-docs/) for
 the search strategies not implemented here: `binseg` (greedy binary
@@ -203,6 +218,12 @@ rather than skipped, and `n_bkps` asks for an exact number of change points
 instead of a penalty. Needs `pip install hazure[cpd]`, which requires Python
 below 3.14; on newer interpreters `PeltScorer` covers the mean-shift case with no
 dependency at all.
+
+`RupturesDetector` pairs it with `FixedThreshold(high=0.0)`, exactly as
+`PeltDetector` does — with no factor to tune, because the search has already
+decided which changes earn a segment. Second-guessing that with a rule on the
+score would answer the same question twice, with less information. Report fewer
+changes by raising `penalty`, or by naming `n_bkps`.
 
 ## Matrix profile
 
@@ -236,11 +257,14 @@ flagged region is $m$ points wide. Maximum rather than mean, because a point
 inside one strange window is worth flagging even if its other windows are
 ordinary.
 
-`DampScorer` is the same idea restricted to the past — each subsequence is
-compared with its nearest neighbour that **started earlier**, so a novel shape
-scores high the first time it occurs rather than being explained away by its own
-later recurrence. The first $2m$ points are `NaN` while there is too little
-history for the comparison to mean anything. Both need `pip install hazure[mp]`.
+`DampScorer`, and `DampDetector` pairing it with the same IQR fence, restrict
+that comparison to the past — each subsequence is judged against its nearest
+neighbour that **started earlier**, so a novel shape scores high the first time it
+occurs rather than being explained away by its own later recurrence. That is the
+one to reach for when an anomaly might repeat, and when the question is "was this
+novel at the time" rather than "is this unique in the record". The first $2m$
+points are `NaN` while there is too little history for the comparison to mean
+anything. Both need `pip install hazure[mp]`.
 
 ## STL and MSTL residuals
 

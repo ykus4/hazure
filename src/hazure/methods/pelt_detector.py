@@ -5,17 +5,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hazure.detection import ScoreDetector
+from hazure.methods.pelt_scorer import PeltScorer
 from hazure.thresholds import FixedThreshold
 
 if TYPE_CHECKING:
     from hazure.methods.breakpoint_scorer import Cost
 
+
 __all__ = [
     "PeltDetector",
 ]
-
-
-from hazure.methods.pelt_scorer import PeltScorer
 
 
 class PeltDetector(ScoreDetector):
