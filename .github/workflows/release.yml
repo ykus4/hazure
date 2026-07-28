@@ -1,0 +1,79 @@
+name: Release
+
+# Building happens on every tag and on demand; publishing happens only for a
+# tag, and only through the `pypi` environment.
+#
+# Before the first release, PyPI needs a trusted publisher configured for this
+# repository, this workflow filename and the `pypi` environment name. That is
+# what lets the publish step authenticate with an OIDC token instead of a
+# long-lived API token nobody can rotate.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_COLOR: "1"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # A tag that disagrees with the version in pyproject.toml publishes a file
+      # nobody can trace back to the commit it came from.
+      - name: the tag and the version have to agree
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(python3 -c "import pathlib, tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          tag="${GITHUB_REF#refs/tags/v}"
+          echo "tag=$tag version=$version"
+          test "$tag" = "$version"
+
+      - run: uv build
+
+      # The wheel has to stand up outside this repository: installed on its own,
+      # with no source tree and no dev group, importing and detecting.
+      - name: the wheel works on its own
+        run: |
+          uv run --isolated --no-project --with "$(echo dist/*.whl)" python -c "
+          import numpy as np
+          import hazure
+          from hazure import SpikeDetector, TimeSeries
+
+          time = np.arange(200, dtype=np.int64) * 3_600_000_000_000
+          values = np.zeros(200)
+          values[120] = 9.0
+          series = TimeSeries.from_arrays(time, values)
+          labels = SpikeDetector(window=24).fit_detect(series)
+          assert labels.n_rows == 200
+          print('ok:', hazure.__version__)
+          "
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/hazure
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

@@ -56,7 +56,10 @@ Issues = "https://github.com/ykus4/hazure/issues"
 
 [dependency-groups]
 docs = [
-    "mkdocs>=1.6",
+    # Capped below 2.0: MkDocs 2.0 removes the plugin system entirely, which
+    # would take mkdocs-material and mkdocstrings — and therefore this whole
+    # site — with it.
+    "mkdocs>=1.6,<2",
     "mkdocs-material>=9.5",
     "mkdocstrings[python]>=0.27",
 ]
