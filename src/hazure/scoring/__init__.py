@@ -17,19 +17,15 @@ between columns rather than in any one of them.
 
 from __future__ import annotations
 
-from hazure.scoring._multivariate import (
-    MinClusterScorer,
-    OutlierScorer,
-    PcaReconstructionErrorScorer,
-    RegressionResidualScorer,
-)
-from hazure.scoring._univariate import (
-    AutoregressionResidualScorer,
-    DeviationScorer,
-    DoubleRollingScorer,
-    RollingAggregateScorer,
-    SeasonalResidualScorer,
-)
+from hazure.scoring.autoregression_residual import AutoregressionResidualScorer
+from hazure.scoring.deviation import DeviationScorer
+from hazure.scoring.double_rolling import DoubleRollingScorer
+from hazure.scoring.min_cluster import MinClusterScorer
+from hazure.scoring.outlier import OutlierScorer
+from hazure.scoring.pca_reconstruction_error import PcaReconstructionErrorScorer
+from hazure.scoring.regression_residual import RegressionResidualScorer
+from hazure.scoring.rolling_aggregate import RollingAggregateScorer
+from hazure.scoring.seasonal_residual import SeasonalResidualScorer
 
 __all__ = [
     "AutoregressionResidualScorer",

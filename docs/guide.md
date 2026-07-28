@@ -239,7 +239,7 @@ print(f1_score(as_change_point, found))
 ```
 
 The same applies to `VolatilityShiftDetector` and to the change-point methods in
-`hazure.methods.changepoint`. If what you actually want is the whole degraded
+`hazure.methods`. If what you actually want is the whole degraded
 stretch, detect the change points and fill between them, or use a detector that
 judges each point on its own — a level shift leaves every subsequent value
 outside the *training* range, which is exactly what `IqrDetector` fitted on the
@@ -297,4 +297,9 @@ either.
 
 ## Where to go next
 
+- [How it works](algorithms/index.md) — what each detector actually computes:
+  the [rolling comparisons](algorithms/rolling.md) behind the spike and shift
+  detectors, the [fences](algorithms/thresholds.md) that turn a score into a
+  verdict, and the [arithmetic of events and
+  metrics](algorithms/evaluation.md).
 - [API reference](api.md) — every public name, module by module.

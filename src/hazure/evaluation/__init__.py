@@ -11,7 +11,13 @@ grows and where the test block sits.
 
 from __future__ import annotations
 
-from hazure.evaluation._metrics import f1_score, iou, precision, recall
-from hazure.evaluation._split import split_train_test
+from hazure.evaluation.metrics import f1_score, iou, precision, recall
+from hazure.evaluation.split import split_train_test
 
-__all__ = ["f1_score", "iou", "precision", "recall", "split_train_test"]
+__all__ = [
+    "f1_score",
+    "iou",
+    "precision",
+    "recall",
+    "split_train_test",
+]

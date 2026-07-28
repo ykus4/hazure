@@ -13,23 +13,19 @@ yet impossible taken together.
 
 from __future__ import annotations
 
-from hazure.features._multivariate import (
-    CustomizedTransformer,
-    OrdinaryLeastSquares,
-    PcaProjection,
-    PcaReconstruction,
-    PcaReconstructionError,
-    RegressionResidual,
-    Regressor,
-    SumAll,
-)
-from hazure.features._univariate import (
-    DoubleRollingAggregate,
-    Retrospect,
-    RollingAggregate,
-    SeasonalDecomposition,
-    StandardScale,
-)
+from hazure.features.customized_transformer import CustomizedTransformer
+from hazure.features.double_rolling_aggregate import DoubleRollingAggregate
+from hazure.features.ordinary_least_squares import OrdinaryLeastSquares
+from hazure.features.pca_projection import PcaProjection
+from hazure.features.pca_reconstruction import PcaReconstruction
+from hazure.features.pca_reconstruction_error import PcaReconstructionError
+from hazure.features.regression_residual import RegressionResidual
+from hazure.features.regressor import Regressor
+from hazure.features.retrospect import Retrospect
+from hazure.features.rolling_aggregate import RollingAggregate
+from hazure.features.seasonal_decomposition import SeasonalDecomposition
+from hazure.features.standard_scale import StandardScale
+from hazure.features.sum_all import SumAll
 
 __all__ = [
     "CustomizedTransformer",

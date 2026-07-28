@@ -19,30 +19,24 @@ and saying so is more useful than calling them normal.
 
 from __future__ import annotations
 
-from hazure.detection._composition import (
-    MultivariateScoreDetector,
-    MultivariateSignedScoreDetector,
-    ScoreDetector,
-    Side,
-    SignedScoreDetector,
-)
-from hazure.detection._multivariate import (
-    MinClusterDetector,
-    OutlierDetector,
-    PcaDetector,
-    RegressionDetector,
-)
-from hazure.detection._univariate import (
-    AutoregressionDetector,
-    EsdDetector,
-    IqrDetector,
-    LevelShiftDetector,
-    QuantileDetector,
-    SeasonalDetector,
-    SpikeDetector,
-    ThresholdDetector,
-    VolatilityShiftDetector,
-)
+from hazure.detection.autoregression import AutoregressionDetector
+from hazure.detection.esd import EsdDetector
+from hazure.detection.iqr import IqrDetector
+from hazure.detection.level_shift import LevelShiftDetector
+from hazure.detection.min_cluster import MinClusterDetector
+from hazure.detection.multivariate_score import MultivariateScoreDetector
+from hazure.detection.multivariate_signed_score import MultivariateSignedScoreDetector
+from hazure.detection.outlier import OutlierDetector
+from hazure.detection.pca import PcaDetector
+from hazure.detection.quantile import QuantileDetector
+from hazure.detection.regression import RegressionDetector
+from hazure.detection.score import ScoreDetector
+from hazure.detection.seasonal import SeasonalDetector
+from hazure.detection.side import Side
+from hazure.detection.signed_score import SignedScoreDetector
+from hazure.detection.spike import SpikeDetector
+from hazure.detection.threshold import ThresholdDetector
+from hazure.detection.volatility_shift import VolatilityShiftDetector
 
 __all__ = [
     "AutoregressionDetector",

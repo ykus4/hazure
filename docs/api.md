@@ -72,9 +72,9 @@ Point- and event-based metrics, and time-ordered folds to compute them over.
 
 ## `hazure.methods`
 
-Further method families, each module one technique: spectral residual, Hampel
-filtering and rolling quantile bands, change-point segmentation, matrix-profile
-discords, and STL / MSTL residuals.
+Further method families: spectral residual, Hampel filtering and rolling
+quantile bands, change-point segmentation, matrix-profile discords, and
+STL / MSTL residuals.
 
 ::: hazure.methods
 

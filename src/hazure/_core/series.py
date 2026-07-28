@@ -896,3 +896,11 @@ def _format_ns(nanoseconds: int) -> str:
 def _describe(data: Any) -> str:
     """Name an object well enough to make an error message actionable."""
     return f"{type(data).__module__}.{type(data).__qualname__}"
+
+
+def complete_rows(values: NDArray[np.float64]) -> NDArray[np.bool_]:
+    """Mark rows with no missing value, the only rows a row-wise model can use."""
+    usable: NDArray[np.bool_] = np.asarray(
+        ~np.isnan(values).any(axis=1), dtype=np.bool_
+    )
+    return usable

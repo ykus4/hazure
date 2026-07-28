@@ -13,8 +13,8 @@ detection:
 
 from __future__ import annotations
 
-from hazure.events._convert import expand_events, to_events, to_labels, validate_series
-from hazure.events._events import Events
+from hazure.events.convert import expand_events, to_events, to_labels, validate_series
+from hazure.events.interval import Events
 
 __all__ = [
     "Events",

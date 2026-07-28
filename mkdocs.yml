@@ -11,10 +11,13 @@ theme:
   name: material
   features:
     - content.code.copy
-    - navigation.sections
+    - navigation.indexes
     - navigation.top
     - search.highlight
+    # One sidebar, not two: the page's own headings hang off the page in the
+    # left-hand tree rather than in a separate right-hand column.
     - toc.follow
+    - toc.integrate
   palette:
     # A theme toggle rather than a fixed scheme, so the code blocks and the
     # diagrams stay legible either way.
@@ -37,16 +40,29 @@ nav:
   - Home: index.md
   - Quickstart: quickstart.md
   - Guide: guide.md
+  - How it works:
+      - algorithms/index.md
+      - Rolling comparisons: algorithms/rolling.md
+      - Univariate scores: algorithms/univariate.md
+      - Thresholds: algorithms/thresholds.md
+      - Multivariate scores: algorithms/multivariate.md
+      - Method families: algorithms/methods.md
+      - Events and metrics: algorithms/evaluation.md
   - API reference: api.md
 
 markdown_extensions:
   - admonition
   - attr_list
   - def_list
+  - footnotes
   - md_in_html
   - tables
   - toc:
       permalink: true
+  # $ ... $ and $$ ... $$ handed to MathJax, configured in
+  # docs/javascripts/mathjax.js.
+  - pymdownx.arithmatex:
+      generic: true
   - pymdownx.details
   - pymdownx.highlight:
       anchor_linenums: true
@@ -59,6 +75,18 @@ markdown_extensions:
         - name: mermaid
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
+
+# Warnings, which `mkdocs build --strict` in CI turns into failures: a heading
+# renamed out from under a cross-reference should break the build, not ship.
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
 
 plugins:
   - search

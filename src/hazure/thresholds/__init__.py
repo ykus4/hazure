@@ -15,16 +15,12 @@ distribution.
 
 from __future__ import annotations
 
-from hazure.thresholds._rules import (
-    MAD_SCALE,
-    EsdThreshold,
-    Factor,
-    FactorSpec,
-    FixedThreshold,
-    IqrThreshold,
-    MadThreshold,
-    QuantileThreshold,
-)
+from hazure.thresholds.esd import EsdThreshold
+from hazure.thresholds.fence import MAD_SCALE, Factor, FactorSpec
+from hazure.thresholds.fixed import FixedThreshold
+from hazure.thresholds.iqr import IqrThreshold
+from hazure.thresholds.mad import MadThreshold
+from hazure.thresholds.quantile import QuantileThreshold
 
 __all__ = [
     "MAD_SCALE",

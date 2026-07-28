@@ -42,12 +42,10 @@ confidences rather than a strict 0/1 still aggregates sensibly.
 
 from __future__ import annotations
 
-from hazure.ensemble._aggregator import (
-    AndAggregator,
-    CustomizedAggregator,
-    OrAggregator,
-    VoteAggregator,
-)
+from hazure.ensemble.and_aggregator import AndAggregator
+from hazure.ensemble.customized_aggregator import CustomizedAggregator
+from hazure.ensemble.or_aggregator import OrAggregator
+from hazure.ensemble.vote_aggregator import VoteAggregator
 
 __all__ = [
     "AndAggregator",
