@@ -8,15 +8,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from hazure import BaseThreshold
-
-if TYPE_CHECKING:
-    from hazure import TimeSeries
-
-__all__ = [
-    "MadThreshold",
-]
-
-
 from hazure.thresholds.fence import (
     MAD_SCALE,
     FactorSpec,
@@ -25,6 +16,14 @@ from hazure.thresholds.fence import (
     _label,
     _valid,
 )
+
+if TYPE_CHECKING:
+    from hazure import TimeSeries
+
+
+__all__ = [
+    "MadThreshold",
+]
 
 
 class MadThreshold(BaseThreshold):

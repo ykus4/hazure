@@ -5,17 +5,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hazure.detection import ScoreDetector
+from hazure.methods.stl_residual_scorer import StlResidualScorer
 from hazure.thresholds import IqrThreshold
 
 if TYPE_CHECKING:
     from hazure.thresholds import Factor
 
+
 __all__ = [
     "StlDetector",
 ]
-
-
-from hazure.methods.stl_residual_scorer import StlResidualScorer
 
 
 class StlDetector(ScoreDetector):

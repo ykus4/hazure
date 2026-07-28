@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from hazure.detection.min_cluster import _MEMBERSHIP_CUTOFF
 from hazure.detection.multivariate_score import MultivariateScoreDetector
 from hazure.scoring import (
     OutlierScorer,
@@ -13,9 +14,6 @@ from hazure.thresholds import FixedThreshold
 __all__ = [
     "OutlierDetector",
 ]
-
-
-from hazure.detection.min_cluster import _MEMBERSHIP_CUTOFF
 
 
 class OutlierDetector(MultivariateScoreDetector):

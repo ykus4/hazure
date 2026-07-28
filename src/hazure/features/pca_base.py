@@ -7,13 +7,13 @@ from typing import TYPE_CHECKING, ClassVar
 import numpy as np
 
 from hazure import BaseTransformer
+from hazure._core.series import complete_rows
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from hazure import TimeSeries
 
-from hazure._core.series import complete_rows
 
 # ---------------------------------------------------------------------------
 # principal component analysis

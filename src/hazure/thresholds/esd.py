@@ -13,18 +13,17 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from hazure import BaseThreshold
+from hazure.thresholds.fence import _valid
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from hazure import TimeSeries
 
+
 __all__ = [
     "EsdThreshold",
 ]
-
-
-from hazure.thresholds.fence import _valid
 
 
 class EsdThreshold(BaseThreshold):
