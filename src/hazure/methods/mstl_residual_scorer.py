@@ -5,18 +5,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from hazure import BaseScorer
+from hazure.methods.stl_residual_scorer import _IRREGULAR, _residual_score
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from hazure import TimeSeries
 
+
 __all__ = [
     "MstlResidualScorer",
 ]
-
-
-from hazure.methods.stl_residual_scorer import _IRREGULAR, _residual_score
 
 
 class MstlResidualScorer(BaseScorer):

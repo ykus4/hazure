@@ -8,6 +8,7 @@ import numpy as np
 
 from hazure import BaseTransformer, rolling
 from hazure._core.window import window_bounds
+from hazure.features.spec import _is_sequence
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -17,12 +18,11 @@ if TYPE_CHECKING:
     from hazure import TimeSeries
     from hazure._core.window import Closed, Window
 
+
 __all__ = [
     "RollingAggregate",
 ]
 
-
-from hazure.features.spec import _is_sequence
 
 # ---------------------------------------------------------------------------
 # rolling aggregates

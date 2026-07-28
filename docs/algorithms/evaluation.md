@@ -304,3 +304,60 @@ a row where every input is unknown is `NaN` rather than a division by zero.
 Inputs are outer-joined on the time axis first, so a timestamp missing from one
 input arrives as unknown, and detectors on different but overlapping axes combine
 without alignment work.
+
+## Combining scores
+
+Every aggregator above takes verdicts, which means each input was thresholded
+before the ensemble saw it — and the threshold is where the knowledge of *degree*
+was spent. `ScoreAggregator` combines the scores instead, so a point two scorers
+nearly flagged stays distinguishable from one neither came close to flagging, and
+the combination is still a ranking rather than a set. That is the reason to prefer
+it: a ranking is what an operator works down, and it survives the ensemble only if
+nothing binarised first.
+
+The price is that scores from different scorers share no unit, so each input
+column has to be put on a common scale before the rows are reduced. Ranking is
+the default. Over the $n$ observed values of input $j$,
+
+$$
+\tilde{x}_{tj} = \frac{r_{tj} - 1}{n - 1},
+\qquad
+r_{tj} = \frac{1}{|T_{tj}|} \sum_{s \in T_{tj}} \mathrm{pos}(s)
+$$
+
+where $\mathrm{pos}$ is the position in ascending order and $T_{tj}$ is the set of
+values tied with $x_{tj}$, so ties share their average position. The smallest
+observed value maps to 0 and the largest to 1, and nothing about the *spacing* of
+the original scores is used. That is the point rather than a limitation: an input
+cannot buy influence by being measured in larger numbers, nor by emitting one
+enormous outlier, and no distributional assumption is needed to compare it with
+the others. A column with no variation gives every value the midrank $(n+1)/2$ and
+hence $\tilde{x} = 0.5$ throughout, which contributes nothing to any of the
+reductions — an input with no opinion is silent rather than loud.
+
+The alternative keeps the spacing, as a robust z-score against the column's own
+median:
+
+$$
+\tilde{x}_{tj} = \frac{x_{tj} - m_j}{c \cdot \mathrm{MAD}_j},
+\qquad
+\mathrm{MAD}_j = \mathrm{med}\bigl(\,\lvert x_{\cdot j} - m_j \rvert\,\bigr),
+\qquad
+c = 1.4826
+$$
+
+with $m_j$ the column median and $c$ the constant from
+[Thresholds](thresholds.md) that puts a MAD on the scale of a standard deviation.
+A score ten deviations out therefore stays ten times as alarming as one deviation
+out, which ranking flattens away — but it is unbounded again, so one loud input
+can still carry a mean. Where $\mathrm{MAD}_j = 0$ there is no unit to divide by
+and the column is centred but left unscaled, so a value on the median contributes
+exactly 0 and the excursions stay finite and ordered rather than becoming an
+infinity that would swallow every other input.
+
+The reduction across the normalised inputs is a mean, a maximum or a median, and
+the choice is the same trade-off the vote makes in discrete form: the mean asks
+for consensus and dilutes a lone voice, the maximum loses nothing any input
+noticed and nothing any input imagined either, and the median is unmoved by one
+input in either direction. Unknowns abstain here as they do in the vote — a row is
+reduced over whichever inputs are known, and is `NaN` only when none of them is.

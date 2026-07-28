@@ -200,9 +200,12 @@ filters the sign afterwards.
 | `HampelDetector` | `HampelScorer(window, center)` | `FixedThreshold(high=factor)` |
 | `PeltDetector` | `PeltScorer(...)` | `FixedThreshold(high=0.0)` |
 | `MatrixProfileDetector` | `MatrixProfileScorer(window)` | `IqrThreshold((None, 3.0))` |
+| `DampDetector` | `DampScorer(window)` | `IqrThreshold((None, 3.0))` |
+| `RollingQuantileDetector` | `RollingQuantileScorer(window, low, high)` | `IqrThreshold((None, 3.0))` |
+| `RupturesDetector` | `RupturesScorer(...)` | `FixedThreshold(high=0.0)` |
 | `StlDetector`, `MstlDetector` | `StlResidualScorer` / `MstlResidualScorer` | `IqrThreshold((None, 3.0))` |
 
-The two `FixedThreshold` rows are the interesting ones. Everything else learns a
+The `FixedThreshold` rows are the interesting ones. Everything else learns a
 cut-off because its score is in arbitrary units; a Hampel score is already in
 robust standard deviations and a cluster score is already binary, so learning a
 fence for either would add a failure mode without adding information.

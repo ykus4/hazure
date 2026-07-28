@@ -7,6 +7,9 @@ from typing import TYPE_CHECKING, Any, Final
 
 import numpy as np
 
+from hazure.methods.breakpoint_scorer import _BreakpointScorer
+from hazure.methods.pelt_scorer import _default_penalty
+
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
@@ -15,9 +18,6 @@ __all__ = [
     "RupturesScorer",
 ]
 
-
-from hazure.methods.breakpoint_scorer import _BreakpointScorer
-from hazure.methods.pelt_scorer import _default_penalty
 
 #: Search strategies :class:`RupturesScorer` can dispatch to.
 _RUPTURES_MODELS: Final = ("binseg", "window", "dynp", "bottomup")
@@ -78,8 +78,8 @@ class RupturesScorer(_BreakpointScorer):
     Examples
     --------
     >>> from hazure.methods import RupturesScorer
-    >>> RupturesScorer(model="dynp", n_bkps=1)  # doctest: +SKIP
-    RupturesScorer(model='dynp', cost='l2', penalty=None, n_bkps=1)
+    >>> RupturesScorer(model="dynp", n_bkps=1)
+    RupturesScorer(model='dynp', n_bkps=1)
     """
 
     def __init__(

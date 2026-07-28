@@ -8,16 +8,15 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from hazure import BaseThreshold
+from hazure.thresholds.fence import _label, _require_a_bound, _valid
 
 if TYPE_CHECKING:
     from hazure import TimeSeries
 
+
 __all__ = [
     "QuantileThreshold",
 ]
-
-
-from hazure.thresholds.fence import _label, _require_a_bound, _valid
 
 
 class QuantileThreshold(BaseThreshold):

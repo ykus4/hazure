@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hazure.features.pca_base import _PcaBase
+
 if TYPE_CHECKING:
     from hazure import TimeSeries
+
 
 __all__ = [
     "PcaProjection",
 ]
-
-
-from hazure.features.pca_base import _PcaBase
 
 
 class PcaProjection(_PcaBase):

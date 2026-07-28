@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hazure.detection import ScoreDetector
+from hazure.methods.mstl_residual_scorer import MstlResidualScorer
 from hazure.thresholds import IqrThreshold
 
 if TYPE_CHECKING:
@@ -12,12 +13,10 @@ if TYPE_CHECKING:
 
     from hazure.thresholds import Factor
 
+
 __all__ = [
     "MstlDetector",
 ]
-
-
-from hazure.methods.mstl_residual_scorer import MstlResidualScorer
 
 
 class MstlDetector(ScoreDetector):
