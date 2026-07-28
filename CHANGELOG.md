@@ -31,6 +31,10 @@ Everything below is the initial development work; nothing has been released yet.
 - **A detector for every method scorer**: `DampDetector`,
   `RollingQuantileDetector` and `RupturesDetector`, plus the `normalize` its
   scorer always took on `MatrixProfileDetector`.
+- **Storing a fitted model.** `Component.to_dict` and
+  `Configurable.from_dict` carry a fitted component — nested components, private
+  learned state and all — through JSON, so a model fitted on a period you trust
+  outlives the process that fitted it.
 - **Composition.** `Pipeline` for a chain, `Graph` for a directed acyclic graph
   of components, and the `And` / `Or` / `Vote` / customised aggregators.
   `ScoreAggregator` combines the scores themselves rather than the verdicts,

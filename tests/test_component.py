@@ -406,3 +406,173 @@ def test_keyword_varargs_are_ignored_rather_than_rejected() -> None:
             self.extra = extra
 
     assert Flexible(size=4, colour="red").get_params() == {"size": 4}
+
+
+# -- serialisation ----------------------------------------------------------
+
+
+def _fittable() -> list[tuple[str, Any]]:
+    """Real components with fitted state worth round-tripping, one per shape.
+
+    Built here rather than at import time so a missing optional extra cannot
+    stop this module from being collected.
+    """
+    from hazure.detection import (
+        AutoregressionDetector,
+        EsdDetector,
+        IqrDetector,
+        LevelShiftDetector,
+        PcaDetector,
+        RegressionDetector,
+        SeasonalDetector,
+        SpikeDetector,
+    )
+    from hazure.features import SeasonalDecomposition, StandardScale
+    from hazure.methods import HampelDetector, PeltDetector, SpectralResidualDetector
+    from hazure.scoring import DeviationScorer as RealDeviationScorer
+    from hazure.thresholds import EsdThreshold, IqrThreshold, MadThreshold
+
+    return [
+        ("iqr", IqrDetector()),
+        ("esd", EsdDetector()),
+        ("spike", SpikeDetector(window=12)),
+        ("level shift", LevelShiftDetector(window=12)),
+        ("seasonal", SeasonalDetector(period=24)),
+        ("autoregression", AutoregressionDetector(n_steps=2)),
+        ("deviation", RealDeviationScorer(center="mean", scale="mad")),
+        ("decomposition", SeasonalDecomposition(period=24, trend=True)),
+        ("standard scale", StandardScale()),
+        ("iqr threshold", IqrThreshold(factor=(None, 2.0))),
+        ("mad threshold", MadThreshold()),
+        ("esd threshold", EsdThreshold(alpha=0.01)),
+        ("hampel", HampelDetector(window=11)),
+        ("pelt", PeltDetector()),
+        ("spectral residual", SpectralResidualDetector()),
+        ("pca", PcaDetector(k=1)),
+        ("regression", RegressionDetector(target="b")),
+    ]
+
+
+def _seasonal_frame(columns: int = 1) -> TimeSeries:
+    """A regular hourly frame with a daily cycle and one planted spike."""
+    rng = np.random.default_rng(0)
+    index = pd.date_range("2024-01-01", periods=240, freq="h", name="time")
+    cycle = 10.0 + 3.0 * np.sin(2 * np.pi * np.arange(240) / 24)
+    data = {}
+    for position in range(columns):
+        values = cycle * (position + 1) + rng.normal(scale=0.2, size=240)
+        values[150] += 12.0
+        data[chr(ord("a") + position)] = values
+    return TimeSeries.from_any(pd.DataFrame(data, index=index))
+
+
+@pytest.mark.parametrize(("name", "component"), _fittable())
+def test_a_fitted_component_survives_a_round_trip_through_json(
+    name: str, component: Any
+) -> None:
+    import json
+
+    # Multivariate components need two columns to have a relationship to model.
+    ts = _seasonal_frame(2 if component.multivariate else 1)
+    fitted = component.fit(ts)
+    expected = fitted.run(ts)
+
+    restored = type(component).from_dict(json.loads(json.dumps(fitted.to_dict())))
+    actual = restored.run(ts)
+
+    assert restored.get_params() == fitted.get_params(), name
+    assert actual.columns == expected.columns, name
+    assert np.array_equal(actual.values, expected.values, equal_nan=True), name
+
+
+def test_a_restored_component_needs_no_second_fit() -> None:
+    import json
+
+    from hazure.detection import SeasonalDetector
+
+    ts = _seasonal_frame()
+    fitted = SeasonalDetector(period=24).fit(ts)
+    restored = SeasonalDetector.from_dict(json.loads(json.dumps(fitted.to_dict())))
+    # run() raises on an unfitted trainable component, so this passing is the
+    # assertion: the fitted state came back, not just the parameters.
+    assert restored.run(ts).n_rows == ts.n_rows
+
+
+def test_an_unfitted_component_carries_only_its_parameters() -> None:
+    stored = Doubler(factor=3.0).to_dict()
+    assert stored["state"] == {"factor": 3.0}
+
+
+def test_serialising_keeps_a_window_pair_a_pair() -> None:
+    from hazure.detection import LevelShiftDetector
+
+    restored = LevelShiftDetector.from_dict(
+        LevelShiftDetector(window=(6, 12)).to_dict()
+    )
+    assert restored.window == (6, 12)
+
+
+def test_serialising_keeps_an_arrays_dtype() -> None:
+    from hazure.methods import PeltScorer
+
+    stored = PeltScorer().fit(_seasonal_frame()).to_dict()
+    # int64 nanosecond timestamps read back as float64 would lose their last
+    # digits, so the dtype travels with the values.
+    assert PeltScorer.from_dict(stored).breakpoints_.dtype == np.int64
+
+
+def test_a_model_hazure_did_not_build_cannot_be_serialised() -> None:
+    from hazure.scoring import OutlierScorer
+
+    class Rejector:
+        def fit_predict(self, X: Any) -> Any:
+            return np.full(X.shape[0], -1)
+
+    scorer = OutlierScorer(model=Rejector())
+    with pytest.raises(TypeError, match="pickle"):
+        scorer.to_dict()
+
+
+def test_a_payload_may_not_name_a_class_outside_hazure() -> None:
+    payload = {"type": "builtins.dict", "state": {}}
+    with pytest.raises(ValueError, match="outside hazure"):
+        Configurable.from_dict(payload)
+
+
+def test_a_payload_may_not_name_something_that_is_not_a_component() -> None:
+    payload = {"type": "hazure.TimeSeries", "state": {}}
+    with pytest.raises(TypeError, match="not a hazure component"):
+        Configurable.from_dict(payload)
+
+
+def test_a_payload_may_not_name_a_class_that_no_longer_exists() -> None:
+    payload = {"type": "hazure.detection.spike.RemovedDetector", "state": {}}
+    with pytest.raises(ValueError, match="does not exist"):
+        Configurable.from_dict(payload)
+
+
+def test_from_dict_refuses_to_hand_back_a_different_component() -> None:
+    from hazure.detection import IqrDetector, SpikeDetector
+
+    with pytest.raises(TypeError, match="is not a SpikeDetector"):
+        SpikeDetector.from_dict(IqrDetector().to_dict())
+
+
+def test_a_reserved_key_in_a_mapping_parameter_is_refused() -> None:
+    from hazure.features import RollingAggregate
+
+    component = RollingAggregate(
+        window=3, agg="quantile", agg_params={"q": 0.5, "__tuple__": 1}
+    )
+    with pytest.raises(TypeError, match="reserved key"):
+        component.to_dict()
+
+
+def test_a_component_of_your_own_round_trips_when_you_name_the_class() -> None:
+    # Deserialising has to import the class a payload names, and an import runs
+    # code, so a bare Configurable.from_dict stays inside hazure. Naming the
+    # class yourself is proof it is already imported, so this is allowed.
+    stored = Doubler(factor=3.0).to_dict()
+    assert Doubler.from_dict(stored).factor == 3.0
+    with pytest.raises(ValueError, match="outside hazure"):
+        Configurable.from_dict(stored)
