@@ -16,6 +16,7 @@ from __future__ import annotations
 from hazure.features.customized_transformer import CustomizedTransformer
 from hazure.features.double_rolling_aggregate import DoubleRollingAggregate
 from hazure.features.ordinary_least_squares import OrdinaryLeastSquares
+from hazure.features.pca_column_error import PcaColumnError
 from hazure.features.pca_projection import PcaProjection
 from hazure.features.pca_reconstruction import PcaReconstruction
 from hazure.features.pca_reconstruction_error import PcaReconstructionError
@@ -31,6 +32,7 @@ __all__ = [
     "CustomizedTransformer",
     "DoubleRollingAggregate",
     "OrdinaryLeastSquares",
+    "PcaColumnError",
     "PcaProjection",
     "PcaReconstruction",
     "PcaReconstructionError",

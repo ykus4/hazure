@@ -17,6 +17,7 @@ from hazure.features import (
     CustomizedTransformer,
     DoubleRollingAggregate,
     OrdinaryLeastSquares,
+    PcaColumnError,
     PcaProjection,
     PcaReconstruction,
     PcaReconstructionError,
@@ -805,6 +806,7 @@ def test_pca_leaves_rows_with_a_missing_value_missing() -> None:
         PcaProjection(k=1),
         PcaReconstruction(k=1),
         PcaReconstructionError(k=1),
+        PcaColumnError(k=1),
     ):
         result = applied(transformer, frame)
         assert np.isnan(result.values[3]).all()
@@ -829,6 +831,46 @@ def test_pca_needs_enough_complete_rows() -> None:
 
 def test_pca_rejects_a_component_count_raised_after_fitting() -> None:
     model = PcaProjection(k=1).fit(rank_one_frame())
+    model.set_params(k=2)
+    with pytest.raises(ValueError, match="component"):
+        model.run(rank_one_frame())
+
+
+def test_the_column_errors_sum_to_the_reconstruction_error() -> None:
+    """The identity the decomposition exists for, at two subspace sizes."""
+    rng = np.random.default_rng(11)
+    frame = daily_frame({name: rng.normal(size=40) for name in "abcd"})
+    for k in (1, 3):
+        parts = applied(PcaColumnError(k=k), frame)
+        total = flat(applied(PcaReconstructionError(k=k), frame))
+        np.testing.assert_allclose(parts.values.sum(axis=1), total)
+
+
+def test_the_column_error_lands_on_the_pair_that_disagrees() -> None:
+    """A break in one of two matched columns charges the pair, not the third."""
+    base = np.arange(20.0)
+    partner = base.copy()
+    partner[8:10] += 8.0
+    frame = daily_frame(
+        {"a": base, "b": partner, "c": np.tile([0.0, 9.0, 3.0, 12.0], 5)}
+    )
+    parts = applied(PcaColumnError(k=2), frame).values
+    totals = parts.sum(axis=1)
+    # The two broken rows dominate, and inside them the unrelated column is
+    # untouched: what the residual localises is the failed relation.
+    assert totals[8:10].min() > 10 * np.delete(totals, [8, 9]).max()
+    assert (parts[8:10, :2].sum(axis=1) / totals[8:10] > 0.99).all()
+
+
+def test_the_column_error_keeps_the_input_columns_in_order() -> None:
+    frame = daily_frame(
+        {"b": [1.0, 2.0, 3.0], "a": [3.0, 1.0, 2.0], "c": [2.0, 3.0, 1.0]}
+    )
+    assert applied(PcaColumnError(k=2), frame).columns == ("b", "a", "c")
+
+
+def test_the_column_error_rejects_a_component_count_raised_after_fitting() -> None:
+    model = PcaColumnError(k=1).fit(rank_one_frame())
     model.set_params(k=2)
     with pytest.raises(ValueError, match="component"):
         model.run(rank_one_frame())
@@ -931,6 +973,7 @@ def configured_transformers() -> list[BaseTransformer]:
         PcaProjection(k=2),
         PcaReconstruction(k=3),
         PcaReconstructionError(k=4),
+        PcaColumnError(k=5),
         CustomizedTransformer(
             transform_func=np.abs, transform_func_params={"out": None}
         ),
