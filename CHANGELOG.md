@@ -28,6 +28,9 @@ Everything below is the initial development work; nothing has been released yet.
 - **Further method families** in `hazure.methods`: spectral residual, the Hampel
   filter, a rolling quantile band, PELT segmentation with a `ruptures` adapter,
   matrix-profile discords, and STL / MSTL residuals.
+- **Per-column attribution for PCA anomalies.** `PcaColumnError` writes out the
+  terms of the reconstruction error, one per column, so a flag can be taken apart
+  without a second model that might disagree with the first.
 - **Composition.** `Pipeline` for a chain, `Graph` for a directed acyclic graph
   of components, and the `And` / `Or` / `Vote` / customised aggregators.
 - **Events and evaluation.** `Events` as closed intervals in UTC nanoseconds,
