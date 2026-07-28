@@ -28,6 +28,10 @@ Everything below is the initial development work; nothing has been released yet.
 - **Further method families** in `hazure.methods`: spectral residual, the Hampel
   filter, a rolling quantile band, PELT segmentation with a `ruptures` adapter,
   matrix-profile discords, and STL / MSTL residuals.
+- **Storing a fitted model.** `Component.to_dict` and
+  `Configurable.from_dict` carry a fitted component — nested components, private
+  learned state and all — through JSON, so a model fitted on a period you trust
+  outlives the process that fitted it.
 - **Composition.** `Pipeline` for a chain, `Graph` for a directed acyclic graph
   of components, and the `And` / `Or` / `Vote` / customised aggregators.
 - **Events and evaluation.** `Events` as closed intervals in UTC nanoseconds,
