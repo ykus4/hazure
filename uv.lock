@@ -561,7 +561,7 @@ dev = [
     { name = "scipy", specifier = ">=1.14" },
 ]
 docs = [
-    { name = "mkdocs", specifier = ">=1.6" },
+    { name = "mkdocs", specifier = ">=1.6,<2" },
     { name = "mkdocs-material", specifier = ">=9.5" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.27" },
 ]
