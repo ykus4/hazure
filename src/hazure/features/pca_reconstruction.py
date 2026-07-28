@@ -6,15 +6,15 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from hazure.features.pca_base import _PcaBase
+
 if TYPE_CHECKING:
     from hazure import TimeSeries
+
 
 __all__ = [
     "PcaReconstruction",
 ]
-
-
-from hazure.features.pca_base import _PcaBase
 
 
 class PcaReconstruction(_PcaBase):

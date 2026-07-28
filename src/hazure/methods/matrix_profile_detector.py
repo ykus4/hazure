@@ -5,17 +5,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hazure.detection import ScoreDetector
+from hazure.methods.matrix_profile_scorer import MatrixProfileScorer
 from hazure.thresholds import IqrThreshold
 
 if TYPE_CHECKING:
     from hazure.thresholds import Factor
 
+
 __all__ = [
     "MatrixProfileDetector",
 ]
-
-
-from hazure.methods.matrix_profile_scorer import MatrixProfileScorer
 
 
 class MatrixProfileDetector(ScoreDetector):

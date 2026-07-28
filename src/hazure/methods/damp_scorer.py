@@ -7,22 +7,22 @@ from typing import TYPE_CHECKING, ClassVar
 import numpy as np
 
 from hazure import BaseScorer
+from hazure.methods.matrix_profile_scorer import (
+    _broadcast,
+    _check_window,
+    _matrix_profile,
+)
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from hazure import TimeSeries
 
+
 __all__ = [
     "DampScorer",
 ]
 
-
-from hazure.methods.matrix_profile_scorer import (
-    _broadcast,
-    _check_window,
-    _matrix_profile,
-)
 
 #: How many windows of history :class:`DampScorer` withholds judgement over.
 _WARMUP_WINDOWS = 2

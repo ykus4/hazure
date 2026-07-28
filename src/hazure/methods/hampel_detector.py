@@ -5,17 +5,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar
 
 from hazure.detection import ScoreDetector
+from hazure.methods.hampel_scorer import HampelScorer
 from hazure.thresholds import FixedThreshold
 
 if TYPE_CHECKING:
     from hazure._core.window import Window
 
+
 __all__ = [
     "HampelDetector",
 ]
-
-
-from hazure.methods.hampel_scorer import HampelScorer
 
 
 class HampelDetector(ScoreDetector):

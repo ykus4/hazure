@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hazure.detection.aggregation import _SPREAD_AGGS, _check_agg
 from hazure.detection.signed_score import SignedScoreDetector
 from hazure.scoring import (
     DoubleRollingScorer,
@@ -17,12 +18,10 @@ if TYPE_CHECKING:
     from hazure.detection.side import Side
     from hazure.thresholds.fence import Factor
 
+
 __all__ = [
     "VolatilityShiftDetector",
 ]
-
-
-from hazure.detection.aggregation import _SPREAD_AGGS, _check_agg
 
 
 class VolatilityShiftDetector(SignedScoreDetector):
