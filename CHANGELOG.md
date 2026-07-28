@@ -33,6 +33,9 @@ Everything below is the initial development work; nothing has been released yet.
   scorer always took on `MatrixProfileDetector`.
 - **Composition.** `Pipeline` for a chain, `Graph` for a directed acyclic graph
   of components, and the `And` / `Or` / `Vote` / customised aggregators.
+  `ScoreAggregator` combines the scores themselves rather than the verdicts,
+  normalising each input by rank or by its MAD first so that a scorer cannot
+  dominate the ensemble by emitting larger numbers.
 - **Events and evaluation.** `Events` as closed intervals in UTC nanoseconds,
   conversion to and from labels, point- and event-based precision, recall, F1 and
   IoU, and time-ordered `split_train_test` folds.

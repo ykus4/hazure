@@ -103,6 +103,7 @@ from hazure.ensemble import (
     AndAggregator,
     CustomizedAggregator,
     OrAggregator,
+    ScoreAggregator,
     VoteAggregator,
 )
 from hazure.evaluation import f1_score, iou, precision, recall, split_train_test
@@ -232,6 +233,7 @@ __all__ = [
     "RollingQuantileScorer",
     "RupturesDetector",
     "RupturesScorer",
+    "ScoreAggregator",
     "ScoreDetector",
     "SeasonalDecomposition",
     "SeasonalDetector",
