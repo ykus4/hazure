@@ -35,6 +35,9 @@ Everything below is the initial development work; nothing has been released yet.
   `Configurable.from_dict` carry a fitted component — nested components, private
   learned state and all — through JSON, so a model fitted on a period you trust
   outlives the process that fitted it.
+- **Per-column attribution for PCA anomalies.** `PcaColumnError` writes out the
+  terms of the reconstruction error, one per column, so a flag can be taken apart
+  without a second model that might disagree with the first.
 - **Composition.** `Pipeline` for a chain, `Graph` for a directed acyclic graph
   of components, and the `And` / `Or` / `Vote` / customised aggregators.
   `ScoreAggregator` combines the scores themselves rather than the verdicts,

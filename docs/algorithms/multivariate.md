@@ -107,6 +107,38 @@ nothing can look wrong; too small and ordinary variation lands in the residual.
 `PcaProjection` and `PcaReconstruction` are exported so the intermediate
 quantities can be looked at directly.
 
+### Which column carried the error
+
+The verdict is one column because the anomaly is a property of the combination.
+That is right, and it is also unhelpful the moment a flag has to be investigated.
+But the squared norm is a sum over coordinates, so the score comes apart
+term by term with nothing left over:
+
+$$
+s_t = \lVert x_t - \hat{x}_t \rVert_2^2 = \sum_{j=1}^{p} (x_{tj} - \hat{x}_{tj})^2
+$$
+
+`PcaColumnError` emits those $p$ terms under the input's own column names, so its
+rows sum back to `PcaReconstructionError` to floating point. It is a
+decomposition, not an approximation of one: there is no separate model to
+disagree with the score being explained, and no residual share to argue about.
+
+Note carefully what the terms are and are not. Each is a coordinate of
+$(I - W^{\top}W)(x_t - \mu)$, the part of the point the retained subspace could not
+express — so a large term says the model failed to place that column, which is
+not the same as that column being wrong. Two columns that normally move together
+and now disagree are jointly unplaceable, and the residual vector is orthogonal to
+the fitted subspace, which fixes how the error divides between them by geometry
+rather than by fault. The split can even put the larger share on the column that
+never moved. Naming the culprit inside a pair needs a third measurement the pair
+can be checked against, and PCA was given no such thing — it was given the pair.
+
+The centring-not-scaling point above applies with force here, because shares
+invite comparison in a way a single score does not: an unscaled column with a
+large variance carries more absolute squared error than a small one whatever
+either is doing. Across columns in different units, `StandardScale` upstream is
+what makes the shares mean anything.
+
 ## Clustering and outlier-model adapters
 
 Two thin adapters exist so that anything with a scikit-learn-shaped interface can
