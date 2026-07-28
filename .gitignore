@@ -219,3 +219,7 @@ __marimo__/
 
 # Scratch virtual environments alongside the project's own .venv
 .venv-*/
+
+# Claude Code's scratch space: agent worktrees live here, and a linter run over
+# the repository would otherwise walk into a half-finished copy of it.
+.claude/

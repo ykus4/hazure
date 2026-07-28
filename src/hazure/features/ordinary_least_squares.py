@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from hazure._core.config import Configurable
+
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
@@ -15,12 +17,19 @@ __all__ = [
 ]
 
 
-class OrdinaryLeastSquares:
+class OrdinaryLeastSquares(Configurable):
     """Least-squares linear regression with an intercept.
 
     The default regressor for :class:`RegressionResidual`. Solved with
     :func:`numpy.linalg.lstsq`, which handles a rank-deficient design matrix by
     returning the minimum-norm solution rather than failing.
+
+    It takes no parameters, and is a :class:`~hazure._core.config.Configurable`
+    only so that a fitted regression can be serialised: a component's fitted state
+    has to be representable for :meth:`~hazure.Component.to_dict` to describe it,
+    and the regressor is part of that state. A regressor of your own does not have
+    to be one, and a serialisable one is the only kind that can be stored rather
+    than refitted.
 
     Attributes
     ----------

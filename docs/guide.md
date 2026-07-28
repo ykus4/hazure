@@ -188,6 +188,54 @@ internally — read the time axis, sort it, keep the first observation at each
 timestamp, cast to float — and hands the result back, so a surprising detection
 can be traced to a reordered axis or a dropped duplicate rather than guessed at.
 
+## Keeping a fitted model
+
+Fitting on a period you trust and detecting on later data is the mode that avoids
+[every contamination
+problem](algorithms/thresholds.md#what-contamination-does-to-a-fitted-fence) —
+but only if the fitted model outlives the process that fitted it. `to_dict` and
+`from_dict` are that: JSON-safe data in, the same component out.
+
+```python
+import json
+
+from hazure.detection import SpikeDetector
+
+fitted = SpikeDetector(window=24, factor=6.0).fit(spiky)
+stored = json.dumps(fitted.to_dict())
+
+restored = SpikeDetector.from_dict(json.loads(stored))
+print(restored.threshold.high_ == fitted.threshold.high_)
+# True
+print(restored.detect(spiky).equals(fitted.detect(spiky)))
+# True
+```
+
+`restored` needs no second `fit`. What was captured is **everything the component
+held**, not only its parameters and not only its `fitted_` attributes: nested
+components, the per-column copies a univariate component fanned out into, and
+private state like the phase anchor `SeasonalDecomposition` learns. That
+completeness is the point — a seasonal profile restored without its anchor would
+not raise, it would answer, and answer against the wrong phase.
+
+Two limits worth knowing before you build on it.
+
+**A model `hazure` did not build cannot be stored.** `OutlierDetector(model=...)`
+and `MinClusterDetector(model=...)` hold your estimator, and hazure has no
+reconstruction for it, so `to_dict` raises and says to use `pickle` or to fit
+again. Everything else round-trips, including `OrdinaryLeastSquares` and so
+`AutoregressionDetector` and `RegressionDetector` at their defaults.
+
+**Deserialising imports the class the payload names**, and an import runs code.
+So `Configurable.from_dict` refuses any name outside `hazure`, and naming the
+class yourself — `MySpikeDetector.from_dict(payload)` — needs no import and is
+allowed. A payload is still not a trust boundary: one from a stranger can
+construct a hazure component with strange parameters, which is a much smaller
+problem than naming any importable object in the interpreter, but not nothing.
+
+The payload records the version that wrote it and nothing enforces it. It is for
+keeping a model between runs, not for archiving one across releases.
+
 ## Two things that surprise people
 
 ### A shift detector reports the change point, not the anomalous interval
