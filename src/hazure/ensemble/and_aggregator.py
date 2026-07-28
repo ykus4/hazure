@@ -7,16 +7,15 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from hazure import BaseAggregator
+from hazure.ensemble.states import _states
 
 if TYPE_CHECKING:
     from hazure import TimeSeries
 
+
 __all__ = [
     "AndAggregator",
 ]
-
-
-from hazure.ensemble.states import _states
 
 
 class AndAggregator(BaseAggregator):

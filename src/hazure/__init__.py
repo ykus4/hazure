@@ -103,6 +103,7 @@ from hazure.ensemble import (
     AndAggregator,
     CustomizedAggregator,
     OrAggregator,
+    ScoreAggregator,
     VoteAggregator,
 )
 from hazure.evaluation import f1_score, iou, precision, recall, split_train_test
@@ -123,6 +124,7 @@ from hazure.features import (
     SumAll,
 )
 from hazure.methods import (
+    DampDetector,
     DampScorer,
     HampelDetector,
     HampelScorer,
@@ -132,7 +134,9 @@ from hazure.methods import (
     MstlResidualScorer,
     PeltDetector,
     PeltScorer,
+    RollingQuantileDetector,
     RollingQuantileScorer,
+    RupturesDetector,
     RupturesScorer,
     SpectralResidualDetector,
     SpectralResidualScorer,
@@ -177,6 +181,7 @@ __all__ = [
     "Component",
     "CustomizedAggregator",
     "CustomizedTransformer",
+    "DampDetector",
     "DampScorer",
     "DeviationScorer",
     "DoubleRollingAggregate",
@@ -224,8 +229,11 @@ __all__ = [
     "Retrospect",
     "RollingAggregate",
     "RollingAggregateScorer",
+    "RollingQuantileDetector",
     "RollingQuantileScorer",
+    "RupturesDetector",
     "RupturesScorer",
+    "ScoreAggregator",
     "ScoreDetector",
     "SeasonalDecomposition",
     "SeasonalDetector",

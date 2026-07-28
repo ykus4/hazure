@@ -8,16 +8,15 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from hazure import BaseScorer
+from hazure._core.series import complete_rows
 
 if TYPE_CHECKING:
     from hazure import BaseTransformer, TimeSeries
 
+
 __all__ = [
     "TransformerScorer",
 ]
-
-
-from hazure._core.series import complete_rows
 
 
 class TransformerScorer(BaseScorer):

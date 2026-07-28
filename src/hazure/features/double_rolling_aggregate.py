@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 import numpy as np
 
 from hazure import BaseTransformer, double_rolling, parse_duration
+from hazure.features.spec import _is_sequence, _pair
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -19,12 +20,11 @@ if TYPE_CHECKING:
     from hazure import TimeSeries
     from hazure._core.window import Window
 
+
 __all__ = [
     "DoubleRollingAggregate",
 ]
 
-
-from hazure.features.spec import _is_sequence, _pair
 
 Diff = Literal["l1", "l2", "diff", "rel_diff", "abs_rel_diff"]
 

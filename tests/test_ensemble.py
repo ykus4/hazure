@@ -12,11 +12,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hazure import TimeSeries
+from hazure import DeviationScorer, DoubleRollingScorer, TimeSeries
+from hazure.compose import Graph, Node
 from hazure.ensemble import (
     AndAggregator,
     CustomizedAggregator,
     OrAggregator,
+    ScoreAggregator,
     VoteAggregator,
 )
 from tests.conftest import BACKENDS, make_native
@@ -103,7 +105,13 @@ def test_a_vote_counts_the_exact_fraction_of_three_inputs() -> None:
 
 
 def test_an_all_unknown_row_is_unknown_for_every_aggregator() -> None:
-    for aggregator in (OrAggregator(), AndAggregator(), VoteAggregator()):
+    aggregators = (
+        OrAggregator(),
+        AndAggregator(),
+        VoteAggregator(),
+        ScoreAggregator(),
+    )
+    for aggregator in aggregators:
         assert np.isnan(combine(aggregator, [(NAN, NAN, NAN)])[0])
 
 
@@ -120,7 +128,13 @@ def test_a_non_binary_label_counts_as_anomalous() -> None:
 def test_every_aggregator_emits_a_single_column_named_anomaly() -> None:
     index = pd.date_range("2024-01-01", periods=3, freq="h", name="time")
     frame = pd.DataFrame({"a": [1.0, 0.0, 0.0], "b": [0.0, 0.0, 1.0]}, index=index)
-    for aggregator in (OrAggregator(), AndAggregator(), VoteAggregator()):
+    aggregators = (
+        OrAggregator(),
+        AndAggregator(),
+        VoteAggregator(),
+        ScoreAggregator(),
+    )
+    for aggregator in aggregators:
         result = aggregator.aggregate(frame)
         assert list(result.columns) == ["anomaly"]
 
@@ -176,6 +190,138 @@ def test_a_customized_aggregator_rejects_a_wrong_row_count() -> None:
         combine(shrinking, [(1.0, 0.0), (0.0, 0.0)])
 
 
+# -- score aggregation ------------------------------------------------------
+
+
+#: Two scorers over five rows, the second in units a thousand times larger.
+SMALL = [0.1, 0.4, 0.2, 0.9, 0.3]
+LARGE = [200.0, 100.0, 500.0, 400.0, 300.0]
+#: The same ranking as ``LARGE``, in units comparable with ``SMALL``.
+COMPARABLE = [0.2, 0.1, 0.5, 0.4, 0.3]
+
+
+def test_the_score_aggregator_ranks_the_difference_in_scale_away() -> None:
+    """Ranking is scale-free, so only the order each input reports survives."""
+    lopsided = combine(ScoreAggregator(), list(zip(SMALL, LARGE, strict=True)))
+    even = combine(ScoreAggregator(), list(zip(SMALL, COMPARABLE, strict=True)))
+    np.testing.assert_allclose(lopsided, even)
+
+    # The other half of the claim: without normalisation the large column simply
+    # is the answer, and the small one might as well not have been passed.
+    raw = combine(
+        ScoreAggregator(normalize="none"), list(zip(SMALL, LARGE, strict=True))
+    )
+    assert np.argsort(raw).tolist() == np.argsort(LARGE).tolist()
+    assert np.argsort(lopsided).tolist() != np.argsort(LARGE).tolist()
+
+
+#: One row where a single input screams, one where every input is mildly raised,
+#: one where every input is loud. Each column is ranked on its own.
+LONE_VOICE = [
+    (0.0, 0.0, 0.0),
+    (10.0, 0.0, 0.0),
+    (3.0, 3.0, 3.0),
+    (9.0, 9.0, 9.0),
+]
+
+
+def test_the_score_aggregator_hears_a_lone_loud_input_only_with_max() -> None:
+    averaged = combine(ScoreAggregator(how="mean"), LONE_VOICE)
+    loudest = combine(ScoreAggregator(how="max"), LONE_VOICE)
+
+    # Averaging dilutes the lone voice below the row every input agrees on.
+    assert averaged[1] < averaged[2] < averaged[3]
+    # Taking the maximum puts it above that row, and level with the loud one.
+    assert loudest[2] < loudest[1]
+    assert loudest[1] == loudest[3] == 1.0
+
+
+def test_the_score_aggregator_median_ignores_one_input_entirely() -> None:
+    """The middle ground: a single input cannot move the median either way."""
+    middling = combine(ScoreAggregator(how="median"), LONE_VOICE)
+    assert middling[1] < middling[2] < middling[3]
+
+
+def test_the_score_aggregator_lets_unknown_inputs_abstain() -> None:
+    """A row is combined from whatever is known, and is NaN only if nothing is."""
+    rows = [(0.0, 0.0, 0.0), (1.0, 2.0, NAN), (4.0, NAN, NAN), (NAN, NAN, NAN)]
+    combined = combine(ScoreAggregator(normalize="none"), rows)
+    np.testing.assert_array_equal(combined, [0.0, 1.5, 4.0, NAN])
+
+
+def test_the_score_aggregator_keeps_a_ranked_row_of_unknowns_unknown() -> None:
+    rows = [(0.0, 0.0), (1.0, NAN), (NAN, NAN), (2.0, 5.0)]
+    combined = combine(ScoreAggregator(), rows)
+    assert np.isnan(combined[2])
+    assert not np.isnan(combined[[0, 1, 3]]).any()
+
+
+def test_the_score_aggregator_scales_by_the_mad_when_asked() -> None:
+    """``robust`` keeps the spacing between scores that ranking flattens."""
+    rows = [(0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (20.0, 20.0)]
+    robust = combine(ScoreAggregator(normalize="robust"), rows)
+    ranked = combine(ScoreAggregator(), rows)
+    # Both agree on the order; only the robust one says how far out the last
+    # point is, which the ranks cap at 1.
+    assert list(np.argsort(robust)) == list(np.argsort(ranked))
+    assert robust[3] > 10.0
+    assert ranked[3] == 1.0
+
+
+def test_the_score_aggregator_treats_a_column_without_spread_as_centred() -> None:
+    """A zero MAD leaves the column unscaled rather than dividing by zero."""
+    rows = [(0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (5.0, 5.0)]
+    combined = combine(ScoreAggregator(normalize="robust"), rows)
+    np.testing.assert_array_equal(combined, [0.0, 0.0, 0.0, 5.0])
+
+
+def test_the_score_aggregator_emits_one_float_column_named_anomaly() -> None:
+    index = pd.date_range("2024-01-01", periods=5, freq="h", name="time")
+    frame = pd.DataFrame({"a": SMALL, "b": LARGE}, index=index)
+    result = ScoreAggregator().aggregate(frame)
+    assert list(result.columns) == ["anomaly"]
+    assert len(result) == 5
+    assert result["anomaly"].dtype == np.float64
+
+
+def test_the_score_aggregator_combines_two_branches_of_a_graph() -> None:
+    """The wiring case: two scorers on the same series, one combined ranking."""
+    index = pd.date_range("2024-01-01", periods=60, freq="h", name="time")
+    values = np.tile([1.0, 2.0, 1.5, 2.5], 15)
+    values[40] = 20.0
+    series = pd.Series(values, index=index, name="x")
+
+    graph = Graph(
+        [
+            Node("deviation", DeviationScorer()),
+            Node("shift", DoubleRollingScorer(window=4)),
+            Node(
+                "combined",
+                ScoreAggregator(),
+                inputs=("deviation", "shift"),
+            ),
+        ]
+    )
+    combined = graph.fit_detect(series)
+    assert len(combined) == 60
+    assert combined.name == "anomaly"
+    assert combined.idxmax() == index[40]
+
+
+def test_a_score_aggregator_rejects_an_unknown_reduction() -> None:
+    with pytest.raises(ValueError, match=r"how='total' is not one of"):
+        ScoreAggregator(how="total")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=r"how='total' is not one of"):
+        combine(ScoreAggregator().set_params(how="total"), LONE_VOICE)
+
+
+def test_a_score_aggregator_rejects_an_unknown_normalisation() -> None:
+    with pytest.raises(ValueError, match=r"normalize='zscore' is not one of"):
+        ScoreAggregator(normalize="zscore")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=r"normalize='zscore' is not one of"):
+        combine(ScoreAggregator().set_params(normalize="zscore"), LONE_VOICE)
+
+
 # -- parameters -------------------------------------------------------------
 
 
@@ -190,6 +336,13 @@ def test_a_vote_exposes_its_threshold() -> None:
     assert repr(VoteAggregator(threshold=0.75)) == "VoteAggregator(threshold=0.75)"
 
 
+def test_a_score_aggregator_exposes_its_choices_and_learns_nothing() -> None:
+    aggregator = ScoreAggregator(how="max", normalize="robust")
+    assert aggregator.get_params() == {"how": "max", "normalize": "robust"}
+    assert repr(aggregator) == "ScoreAggregator(how='max', normalize='robust')"
+    assert ScoreAggregator.trainable is False
+
+
 def test_clone_round_trips_every_aggregator_parameter() -> None:
     def half(labels: np.ndarray) -> np.ndarray:
         return labels[:, 0]
@@ -198,6 +351,7 @@ def test_clone_round_trips_every_aggregator_parameter() -> None:
         OrAggregator(),
         AndAggregator(),
         VoteAggregator(threshold=0.8),
+        ScoreAggregator(how="median", normalize="none"),
         CustomizedAggregator(aggregate_func=half, aggregate_func_params={"unused": 1}),
     ]
     for original in originals:

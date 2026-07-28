@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar, Final
 
+from hazure.detection.score import ScoreDetector
+
 if TYPE_CHECKING:
     from hazure import TimeSeries
+
 
 __all__ = [
     "MultivariateScoreDetector",
 ]
 
-
-from hazure.detection.score import ScoreDetector
 
 #: Column name every multivariate detector reports its labels under.
 _LABEL_NAME: Final = "anomaly"

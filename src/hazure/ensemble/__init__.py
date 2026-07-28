@@ -38,6 +38,15 @@ the denominator, and a row where nothing is known is unknown.
 
 Any non-zero label counts as anomalous, so a detector that emits counts or
 confidences rather than a strict 0/1 still aggregates sensibly.
+
+Combining scores instead
+------------------------
+
+Labels are not the only thing worth combining. :class:`ScoreAggregator` takes the
+scores themselves, before any threshold has turned them into verdicts, so the
+ensemble keeps the ranking that binarising throws away — and, because raw scores
+from different scorers share no yardstick, it normalises each input first.
+Unknowns abstain there too.
 """
 
 from __future__ import annotations
@@ -45,11 +54,13 @@ from __future__ import annotations
 from hazure.ensemble.and_aggregator import AndAggregator
 from hazure.ensemble.customized_aggregator import CustomizedAggregator
 from hazure.ensemble.or_aggregator import OrAggregator
+from hazure.ensemble.score_aggregator import ScoreAggregator
 from hazure.ensemble.vote_aggregator import VoteAggregator
 
 __all__ = [
     "AndAggregator",
     "CustomizedAggregator",
     "OrAggregator",
+    "ScoreAggregator",
     "VoteAggregator",
 ]

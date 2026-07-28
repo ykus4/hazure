@@ -61,13 +61,13 @@ docs = [
     # site — with it.
     "mkdocs>=1.6,<2",
     "mkdocs-material>=9.5",
-    "mkdocstrings[python]>=0.27",
+    "mkdocstrings[python]>=1.0.6",
 ]
 dev = [
     "pre-commit>=4.0",
     "pytest>=8.3",
     "pytest-cov>=6.0",
-    "hypothesis>=6.120",
+    "hypothesis>=6.163.0",
     "mypy>=1.14",
     "ruff>=0.9",
     "pandas>=2.0",
