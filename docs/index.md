@@ -58,4 +58,6 @@ typed, MIT licensed.
 - [Guide](guide.md) — the component types, which detector suits which kind of
   anomaly, univariate versus multivariate, and the two behaviours that surprise
   people most.
+- [How it works](algorithms/index.md) — the mathematics of every scorer,
+  threshold and metric, and where each one's assumptions run out.
 - [API reference](api.md) — every public name, module by module.

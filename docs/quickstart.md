@@ -181,4 +181,7 @@ print(type(polars_labels).__name__, int(polars_labels["rps"].sum()))
 
 - [Guide](guide.md) — the five component types, which detector suits which kind
   of anomaly, and the two behaviours that surprise people most.
+- [How it works](algorithms/index.md) — the mathematics behind each detector,
+  starting with the [rolling comparisons](algorithms/rolling.md) most of them
+  are built from.
 - [API reference](api.md) — every public name, module by module.
