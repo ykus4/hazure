@@ -236,6 +236,57 @@ problem than naming any importable object in the interpreter, but not nothing.
 The payload records the version that wrote it and nothing enforces it. It is for
 keeping a model between runs, not for archiving one across releases.
 
+## Detecting on a stream
+
+There is no `partial_fit`, and the reason is worth stating rather than working
+around. Of the statistics these components learn, only some can be updated by one
+observation at a time:
+
+| Updatable exactly | Needs the whole sample |
+| --- | --- |
+| a mean and a standard deviation | any **quantile** — `IqrThreshold`, `QuantileThreshold` |
+| the per-phase means of `SeasonalDecomposition` | a **median** — `MadThreshold`, `DeviationScorer(scale="iqr")` |
+| the normal equations of `OrdinaryLeastSquares` | `EsdThreshold`, whose fit removes points iteratively |
+
+The right-hand column is where the defaults live: every detector in this library
+that learns a fence learns an inter-quartile one. A `partial_fit` would therefore
+be absent from exactly the components you reach for first.
+
+What works instead, for every component, is to **refit on a rolling window of
+history** and detect on what arrives after it:
+
+```python
+window, history, batch = 24, 24 * 3, 24
+
+found = []
+for start in range(history, len(spiky), batch):
+    model = SpikeDetector(window=window, factor=6.0).fit(
+        spiky.iloc[start - history : start]
+    )
+    scored = model.detect(spiky.iloc[start - window : start + batch])
+    found.extend(scored.iloc[window:].pipe(lambda s: s.index[s == 1.0]))
+
+print(len(found), str(found[0]))
+# 1 2024-01-07 06:00:00
+```
+
+Note the detail that makes it work: **the batch is scored together with the
+window that precedes it**, and those leading labels are then dropped. A
+window-based detector handed a 24-hour batch on its own has no history for the
+first 24 hours of it and returns `NaN` for all of them — no error, no alerts, and
+nothing to suggest why. Overlap the read, not the reporting.
+
+For a quantile-based fence this is not a poor substitute for an incremental
+update, it is the better answer. A fence fitted on an ever-growing sample becomes
+steadily less able to notice that the last week is different from the first year;
+one fitted on the last month is a statement about the last month. Choosing that
+length is an empirical question, and `split_train_test` in mode 3 — expanding
+training window, fixed test block — is how to measure it rather than guess.
+
+`to_dict` is what keeps this cheap when the loop is not a loop but a scheduled
+job: fit once per day, store the model, and let each run detect against the model
+the last fit produced.
+
 ## Two things that surprise people
 
 ### A shift detector reports the change point, not the anomalous interval
