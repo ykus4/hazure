@@ -79,8 +79,8 @@ class MatrixProfileScorer(BaseScorer):
     Examples
     --------
     >>> from hazure.methods import MatrixProfileScorer
-    >>> MatrixProfileScorer(window=24)  # doctest: +SKIP
-    MatrixProfileScorer(window=24, normalize=True)
+    >>> MatrixProfileScorer(window=24)
+    MatrixProfileScorer(window=24)
     """
 
     trainable: ClassVar[bool] = False

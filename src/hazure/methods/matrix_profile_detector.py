@@ -34,6 +34,10 @@ class MatrixProfileDetector(ScoreDetector):
         Inter-quartile-range factor deciding how far from its neighbours a
         subsequence has to be. One-sided: a shape that matches the series well is
         never anomalous.
+    normalize
+        Compare shapes (z-normalised) rather than raw amplitudes. Leave it on to
+        match a pattern wherever it sits and however large it is; turn it off when
+        the level and the amplitude are part of what makes the shape itself.
 
     Raises
     ------
@@ -47,15 +51,19 @@ class MatrixProfileDetector(ScoreDetector):
     Examples
     --------
     >>> from hazure.methods import MatrixProfileDetector
-    >>> MatrixProfileDetector(window=24)  # doctest: +SKIP
-    MatrixProfileDetector(window=24, factor=3.0)
+    >>> MatrixProfileDetector(window=24)
+    MatrixProfileDetector(window=24)
     """
 
-    def __init__(self, window: int, factor: Factor = 3.0) -> None:
+    def __init__(
+        self, window: int, factor: Factor = 3.0, normalize: bool = True
+    ) -> None:
         self.window = window
         self.factor = factor
+        self.normalize = normalize
         self._build()
 
     def _build(self) -> None:
-        self.scorer = MatrixProfileScorer(window=self.window)
+        """Rebuild the scorer and the threshold from the current parameters."""
+        self.scorer = MatrixProfileScorer(window=self.window, normalize=self.normalize)
         self.threshold = IqrThreshold(factor=(None, self.factor))

@@ -81,8 +81,8 @@ class DampScorer(BaseScorer):
     Examples
     --------
     >>> from hazure.methods import DampScorer
-    >>> DampScorer(window=24)  # doctest: +SKIP
-    DampScorer(window=24, normalize=True)
+    >>> DampScorer(window=24)
+    DampScorer(window=24)
     """
 
     trainable: ClassVar[bool] = False

@@ -1,7 +1,7 @@
 """Detection methods beyond the rolling-window rules.
 
-Five families, each a scorer and — where the pairing is obvious — a ready-made
-detector:
+Five families, each a scorer and a ready-made detector pairing it with a
+threshold:
 
 **Spectral residual**
     Saliency from a Fourier transform with its smooth amplitude envelope removed.
@@ -27,6 +27,7 @@ missing.
 from __future__ import annotations
 
 from hazure.methods.breakpoint_scorer import Cost
+from hazure.methods.damp_detector import DampDetector
 from hazure.methods.damp_scorer import DampScorer
 from hazure.methods.hampel_detector import HampelDetector
 from hazure.methods.hampel_scorer import HampelScorer
@@ -36,7 +37,9 @@ from hazure.methods.mstl_detector import MstlDetector
 from hazure.methods.mstl_residual_scorer import MstlResidualScorer
 from hazure.methods.pelt_detector import PeltDetector
 from hazure.methods.pelt_scorer import PeltScorer
+from hazure.methods.rolling_quantile_detector import RollingQuantileDetector
 from hazure.methods.rolling_quantile_scorer import RollingQuantileScorer
+from hazure.methods.ruptures_detector import RupturesDetector
 from hazure.methods.ruptures_scorer import RupturesScorer
 from hazure.methods.spectral_residual_detector import SpectralResidualDetector
 from hazure.methods.spectral_residual_scorer import SpectralResidualScorer
@@ -45,6 +48,7 @@ from hazure.methods.stl_residual_scorer import StlResidualScorer
 
 __all__ = [
     "Cost",
+    "DampDetector",
     "DampScorer",
     "HampelDetector",
     "HampelScorer",
@@ -54,7 +58,9 @@ __all__ = [
     "MstlResidualScorer",
     "PeltDetector",
     "PeltScorer",
+    "RollingQuantileDetector",
     "RollingQuantileScorer",
+    "RupturesDetector",
     "RupturesScorer",
     "SpectralResidualDetector",
     "SpectralResidualScorer",

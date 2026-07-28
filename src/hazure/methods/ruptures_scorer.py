@@ -78,8 +78,8 @@ class RupturesScorer(_BreakpointScorer):
     Examples
     --------
     >>> from hazure.methods import RupturesScorer
-    >>> RupturesScorer(model="dynp", n_bkps=1)  # doctest: +SKIP
-    RupturesScorer(model='dynp', cost='l2', penalty=None, n_bkps=1)
+    >>> RupturesScorer(model="dynp", n_bkps=1)
+    RupturesScorer(model='dynp', n_bkps=1)
     """
 
     def __init__(
