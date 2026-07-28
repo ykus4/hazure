@@ -1,0 +1,29 @@
+# Linting and formatting only — the same two ruff invocations the CI lint job
+# runs, so a hook skipped locally still fails the pull request rather than
+# landing. Type checking and tests stay in CI, where they can afford the time.
+#
+#   uv run pre-commit install        once, per clone
+#   uv run pre-commit run --all-files    to sweep the tree
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+        # mkdocs.yml carries a `!!python/name:` tag, which the safe loader
+        # refuses; --unsafe checks the syntax without resolving tags.
+        args: [--unsafe]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.0
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+        # ruff formats the Python inside Markdown fences too, and the docs pages
+        # are full of them — leaving it off the hook is how a formatting slip in a
+        # code example reaches CI.
+        types_or: [python, pyi, jupyter, markdown]
