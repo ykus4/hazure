@@ -38,6 +38,10 @@ Everything below is the initial development work; nothing has been released yet.
 - **Per-column attribution for PCA anomalies.** `PcaColumnError` writes out the
   terms of the reconstruction error, one per column, so a flag can be taken apart
   without a second model that might disagree with the first.
+- **How late, and how good the ranking is.** `detection_delay` and
+  `detection_delays` say when an alert arrived rather than only whether it did,
+  and `average_precision` and `roc_auc` score a scorer without a fence being
+  chosen first.
 - **Composition.** `Pipeline` for a chain, `Graph` for a directed acyclic graph
   of components, and the `And` / `Or` / `Vote` / customised aggregators.
   `ScoreAggregator` combines the scores themselves rather than the verdicts,

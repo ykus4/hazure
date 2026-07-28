@@ -135,6 +135,118 @@ example](../guide.md#a-shift-detector-reports-the-change-point-not-the-anomalous
 the fix is to reduce the truth to change points and allow a tolerance with
 `expand_events`.
 
+## How late the alert was
+
+Precision and recall answer *whether*, never *when*. A detector that finds every
+outage six hours in scores a perfect 1.0 on all four metrics above, and is
+useless. `detection_delays` fills that gap with one number per true event: with
+$E_i = [a_i, b_i]$ the $i$-th true event and $P$ the predicted set,
+
+$$
+\delta_i =
+\begin{cases}
+\min \left( E_i \cap P \right) - a_i & E_i \cap P \neq \emptyset\\
+\mathrm{NaN} & \text{otherwise}
+\end{cases}
+$$
+
+in nanoseconds, the library's internal time unit. Read one back as a duration
+with `np.timedelta64(int(d), "ns")`.
+
+Three decisions in that definition are worth defending.
+
+**An undetected event is `NaN`, not zero and not its own duration.** Zero would
+claim an instant response to something nobody ever saw. The duration would be an
+invented number that grows with how long the outage happened to run. A missed
+event has no delay at all, and `recall` is the metric that counts it.
+
+**Firing early clamps to zero, and cannot go negative.** The delay is measured
+from the first moment the prediction and the event *coincide* — the start of
+$E_i \cap P$, which by construction is never before $a_i$. An alert that opened
+an hour before the outage was not an hour early to it; it was a false positive
+that happened to run into one, and precision is where that shows up. Allowing
+$-1\,\text{h}$ would let early noise cancel late detections in the mean, and a
+mean of signed delays is not a number anyone can act on.
+
+**Only detected events are reduced.** `detection_delay` takes the `mean`,
+`median` or `max` over the non-`NaN` entries, and is itself `NaN` when nothing
+was detected at all.
+
+**A delay is only meaningful next to a recall.** Dropping the misses is what
+makes the statistic interpretable, and it is also what makes it gameable. A
+detector that catches one outage out of fifty, quickly, posts a better delay than
+one that catches all fifty a little more slowly. Quote the pair, always. The same
+caveat applies to the `max`: it is the worst case *among the ones you found*.
+
+## Ranking without a threshold
+
+Every metric so far needs labels, so scoring a `Scorer` with them means picking a
+threshold first — and then you are measuring the threshold as much as the score.
+`average_precision` and `roc_auc` need no threshold. They ask only whether the
+anomalous samples are ranked above the normal ones. Both are **sample-based**.
+
+Take the distinct values of the score in decreasing order as thresholds. At the
+$k$-th, let $\mathrm{tp}_k$ and $\mathrm{fp}_k$ count the anomalous and normal
+samples scoring at least that high, with $n_P$ anomalous and $n_N$ normal samples
+in total:
+
+$$
+P_k = \frac{\mathrm{tp}_k}{\mathrm{tp}_k + \mathrm{fp}_k}, \qquad
+R_k = \frac{\mathrm{tp}_k}{n_P}, \qquad R_0 = 0
+$$
+
+$$
+\mathrm{AP} = \sum_k \left( R_k - R_{k-1} \right) P_k
+$$
+
+That is a right-hand rectangle sum, not a trapezoid: the curve is never
+interpolated between operating points, because the segment between two
+achievable points is generally not itself achievable and integrating it flatters
+the score. The area under the ROC curve is computed exactly too, but through
+midranks rather than by walking the curve. Rank the samples by score in
+increasing order from 1, giving every member of a tied block the average $r_i$ of
+the ranks that block occupies; then
+
+$$
+\mathrm{AUC} = \frac{\sum_{i \in P} r_i - \tfrac{1}{2} n_P \left( n_P + 1 \right)}{n_P \, n_N}
+$$
+
+which is the probability that a random anomalous sample outranks a random normal
+one, ties counting half. Both are checked against
+`sklearn.metrics.average_precision_score` and `roc_auc_score` in the test suite,
+including on scores that are almost entirely ties.
+
+**Ties are the trap.** Tied scores carry no information about which sample is
+worse, so no ordering may be imposed on them. Taking *distinct* thresholds gives
+a tied block exactly one point on the PR curve; midranks give it one diagonal
+step of the ROC and therefore the trapezoid under that diagonal. Sort a tied
+block arbitrarily instead and a constant score — a scorer that has said nothing
+at all — can come out anywhere between 0 and 1, depending on how the sort
+happened to break the tie. Integer-valued and clipped scores tie constantly, so
+this is not a corner case.
+
+**A `NaN` score is excluded, not ranked last.** The sample was never placed,
+usually because a rolling window had not filled; ranking it at the bottom would
+credit the scorer with a judgement it did not make. Note the asymmetry with
+labels, which is deliberate: a `NaN` *truth* counts as normal, exactly as it does
+for the point-based metrics, because an unknown label still describes a sample
+that existed. `NaN` comes back when the answer is undefined — no positives, no
+negatives, or nothing left once the unscored rows are dropped.
+
+**Read the two together.** The false positive rate has the whole normal class in
+its denominator, so on the rare-anomaly data this library is aimed at, a detector
+can post an excellent `roc_auc` while being wrong far more often than it is
+right. Average precision has $\mathrm{tp}_k + \mathrm{fp}_k$ in its denominator
+and notices.
+
+There is deliberately **no event-based average precision**. It would need one
+score per interval, and there is no defensible way to pick it: the maximum over
+an interval rewards one lucky sample, the mean punishes a detector that is
+emphatically right for one minute of a six-hour outage, and the choice changes
+the ranking rather than just rescaling it. If events are what matter, threshold
+the score and use the event-based metrics above, where the thresholding decision
+is at least explicit.
+
 ## Time-ordered splitting
 
 `split_train_test` builds folds that never train on the future. Shuffled

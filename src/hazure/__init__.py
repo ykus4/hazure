@@ -55,7 +55,8 @@ by subject, if you prefer to import from there:
 ``hazure.events``
     Moving between per-sample labels and anomalous intervals.
 ``hazure.evaluation``
-    Metrics, and time-ordered folds to compute them over.
+    Metrics — how much was caught, how late, how well ranked — and time-ordered
+    folds to compute them over.
 ``hazure.methods``
     Further method families: spectral residual, Hampel filtering, change-point
     segmentation, matrix profile discords, STL residuals.
@@ -106,7 +107,17 @@ from hazure.ensemble import (
     ScoreAggregator,
     VoteAggregator,
 )
-from hazure.evaluation import f1_score, iou, precision, recall, split_train_test
+from hazure.evaluation import (
+    average_precision,
+    detection_delay,
+    detection_delays,
+    f1_score,
+    iou,
+    precision,
+    recall,
+    roc_auc,
+    split_train_test,
+)
 from hazure.events import Events, expand_events, to_events, to_labels, validate_series
 from hazure.features import (
     CustomizedTransformer,
@@ -254,6 +265,9 @@ __all__ = [
     "VolatilityShiftDetector",
     "VoteAggregator",
     "__version__",
+    "average_precision",
+    "detection_delay",
+    "detection_delays",
     "double_rolling",
     "expand_events",
     "f1_score",
@@ -261,6 +275,7 @@ __all__ = [
     "parse_duration",
     "precision",
     "recall",
+    "roc_auc",
     "rolling",
     "split_train_test",
     "to_events",
