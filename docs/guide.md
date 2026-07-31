@@ -188,6 +188,64 @@ internally — read the time axis, sort it, keep the first observation at each
 timestamp, cast to float — and hands the result back, so a surprising detection
 can be traced to a reordered axis or a dropped duplicate rather than guessed at.
 
+## Choosing the cut-off
+
+Every threshold in the library is parameterised by *something* — a quantile, a
+number of spreads, a significance level — and none of those somethings is "the
+answer I want". Two ways to get from one to the other.
+
+If somebody wrote the incidents down, `tune_threshold` searches for the cut-off
+that scores best against them:
+
+```python
+from hazure import budget_threshold, tune_threshold
+from hazure.datasets import make_series
+from hazure.evaluation import recall
+from hazure.scoring import DoubleRollingScorer
+
+data = make_series("spike", n=3000, n_anomalies=5, strength=9.0, backend="pandas")
+scores = DoubleRollingScorer(window=(24, 1)).fit_score(data.data)
+
+best = tune_threshold(data.events, scores)
+print(best, to_events(best.threshold.apply(scores)).n_events, "alerts")
+# Calibration(cut_off=8.43629, event f1=1, over 200 candidates) 5 alerts
+```
+
+If nobody did — the case this library is mostly about — there is still a number
+you know: how many pages a week anyone will read. `budget_threshold` lowers the
+fence as far as that allows and no further.
+
+```python
+for alerts in (1, 5):
+    chosen = budget_threshold(scores, alerts=alerts, per="7d")
+    found = to_events(chosen.threshold.apply(scores))
+    print(alerts, round(chosen.cut_off, 2), found.n_events, recall(data.events, found))
+# 1 9.7 1 0.2
+# 5 3.44 7 1.0
+```
+
+That is the whole trade, printed. One page a week buys one alert and catches one
+of the five spikes; five a week catches all five and costs seven alerts. Neither
+row is the right answer — which one you want is a question about your team, and
+this is the function that lets you ask it in those terms.
+
+Two details behind it. The search **descends**: it starts from a fence that flags
+nothing and lowers it until the budget breaks, because alert *count* is not
+monotone in the cut-off — raising a fence can split one alert into two, and taken
+far enough it reverses completely, since a fence near the bottom flags almost
+every sample and those merge into one enormous alert that satisfies any budget you
+like. And a flagged stretch broken by a single quiet sample counts as two alerts
+unless you pass `gap`, which merges them the way a real monitor's debounce would.
+
+Both functions hand back a `Calibration` carrying the whole `curve` they searched,
+which is the part worth looking at: a peak one candidate wide is a peak fitted to
+noise, and no summary number will tell you that.
+
+The cut-off `tune_threshold` finds is fitted to the labels you gave it, so quoting
+the same metric at the same cut-off on the same data is reporting a training
+score. Tune on one fold and measure on the next — `split_train_test` is there for
+it.
+
 ## Keeping a fitted model
 
 Fitting on a period you trust and detecting on later data is the mode that avoids
@@ -252,40 +310,91 @@ The right-hand column is where the defaults live: every detector in this library
 that learns a fence learns an inter-quartile one. A `partial_fit` would therefore
 be absent from exactly the components you reach for first.
 
-What works instead, for every component, is to **refit on a rolling window of
-history** and detect on what arrives after it:
+What works instead, for every component, is to fit once on history you trust and
+then **run the fitted component over a buffer of the recent past**, once per
+arriving observation. `Stream` is that loop:
 
 ```python
-window, history, batch = 24, 24 * 3, 24
+from hazure import Stream
 
-found = []
-for start in range(history, len(spiky), batch):
-    model = SpikeDetector(window=window, factor=6.0).fit(
-        spiky.iloc[start - history : start]
-    )
-    scored = model.detect(spiky.iloc[start - window : start + batch])
-    found.extend(scored.iloc[window:].pipe(lambda s: s.index[s == 1.0]))
+detector = SpikeDetector(window=24, factor=6.0).fit(spiky.iloc[:72])
+stream = Stream(detector, history=48).prime(spiky.iloc[:72])
 
-print(len(found), str(found[0]))
+labels = stream.update_many(spiky.iloc[72:])
+print(int(labels.sum()), str(labels.index[labels == 1.0][0]))
 # 1 2024-01-07 06:00:00
 ```
 
-Note the detail that makes it work: **the batch is scored together with the
-window that precedes it**, and those leading labels are then dropped. A
-window-based detector handed a 24-hour batch on its own has no history for the
-first 24 hours of it and returns `NaN` for all of them — no error, no alerts, and
-nothing to suggest why. Overlap the read, not the reporting.
+Two things are worth pulling out of that.
 
-For a quantile-based fence this is not a poor substitute for an incremental
-update, it is the better answer. A fence fitted on an ever-growing sample becomes
-steadily less able to notice that the last week is different from the first year;
-one fitted on the last month is a statement about the last month. Choosing that
-length is an empirical question, and `split_train_test` in mode 3 — expanding
-training window, fixed test block — is how to measure it rather than guess.
+**The online answer is the batch answer.** There is one implementation of
+`SpikeDetector`, and streaming reuses it rather than reimplementing it
+incrementally, so the two cannot drift apart. The cost is that each observation
+runs the detector over the whole buffer — irrelevant at one sample a minute, and
+the reason this is the right trade for monitoring rather than for a tight loop.
 
-`to_dict` is what keeps this cheap when the loop is not a loop but a scheduled
-job: fit once per day, store the model, and let each run detect against the model
-the last fit produced.
+**`prime` checks the buffer length, because getting it wrong is silent.** A
+window-based detector whose buffer is shorter than its window has no history to
+compare against and returns `NaN` — no error, no alerts, and nothing to suggest
+why. So `prime` computes the last observation's verdict twice, once from the full
+history you hand it and once from the truncated buffer, and refuses to start if
+they disagree:
+
+```python
+try:
+    Stream(detector, history=5).prime(spiky.iloc[:72])
+except ValueError as error:
+    print(str(error).split(":")[0])
+# Stream(history=5) is too short for SpikeDetector
+```
+
+Sizing `history` is not simply reading the detector's `window` — a `Pipeline`
+consumes the sum of what its steps consume, and a seasonal detector wants several
+periods — so hand `prime` more history than you think you need and let it tell you.
+
+The fit itself does not move, which is deliberate: what counts as normal stays a
+decision you made on data you chose. Refresh it on a schedule rather than
+continuously, and `to_dict` makes that cheap — fit once a day, store the model,
+and let each run detect against the model the last fit produced. A fence fitted on
+an ever-growing sample becomes steadily less able to notice that the last week is
+different from the first year; one fitted on the last month is a statement about
+the last month. Choosing that length is an empirical question, and
+`split_train_test` in mode 3 — expanding training window, fixed test block — is
+how to measure it rather than guess.
+
+One fence *is* genuinely incremental, and it is not in the right-hand column above
+because it is not a quantile of the sample. `PotThreshold` fits a generalised
+Pareto to the tail of the training scores, and its `update` absorbs each new score
+into that tail — discarding the ones it flags, since an anomaly says nothing about
+how normal behaves. The two pieces compose: stream the scorer, and hand each score
+to the threshold.
+
+```python
+from hazure import PotThreshold
+from hazure.scoring import DoubleRollingScorer
+
+scorer = DoubleRollingScorer(window=(24, 1)).fit(spiky.iloc[:400])
+fence = PotThreshold(high=1e-3, level=0.95).fit(scorer.score(spiky.iloc[:400]))
+scores = Stream(scorer, history=48).prime(spiky.iloc[:400])
+
+live = spiky.iloc[400:].copy()
+live.iloc[50] = 26.0  # something goes wrong after deployment
+
+flagged = [
+    stamp
+    for stamp, value in live.items()
+    if fence.update(scores.update(stamp, float(value))) == 1.0
+]
+print(len(flagged), str(flagged[0]))
+# 1 2024-01-19 18:00:00
+```
+
+`level=0.95` rather than the default `0.98` because 400 observations is not much
+to fit a tail from: the fence needs at least ten scores above `level` to be fitted
+at all, and below that it reports `nan` rather than extrapolating from three
+points. That trade — a tail that is better justified the higher `level` goes, and
+fitted from less data — is the whole tension in the method, and is discussed on
+[the thresholds page](algorithms/thresholds.md#potthreshold).
 
 ## Two things that surprise people
 
@@ -402,3 +511,6 @@ either.
   verdict, and the [arithmetic of events and
   metrics](algorithms/evaluation.md).
 - [API reference](api.md) — every public name, module by module.
+- `hazure.datasets` — `make_series` for series with a known answer at a strength
+  you set, `load_nab` for the labelled ones from the Numenta Anomaly Benchmark,
+  and `compare` for putting several detectors' numbers side by side.

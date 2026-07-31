@@ -40,6 +40,35 @@ Everything is one of five composable component types (`Scorer`, `Threshold`,
 `Detector`, `Aggregator`, `Transformer`), chained with `Pipeline` and wired with
 `Graph` when the model branches.
 
+## On a series that is still arriving
+
+Fit once on a period you are willing to call normal, then feed observations in as
+they come. `Stream` runs the *same* fitted component over a buffer of recent
+history, so the online answer is the batch answer rather than a second
+implementation of it — and `prime` refuses to start if the buffer is too short for
+what the component looks back over, instead of quietly computing from a window
+that was never full.
+
+```python
+from hazure import Stream
+
+detector = SeasonalDetector(period=24).fit(traffic)
+stream = Stream(detector, history=48).prime(traffic)
+
+stream.update("2024-03-22T00:00", 105.0)  # in line with the fortnight -> 0.0
+stream.update("2024-03-22T01:00", 12.0)  # not in line with it -> 1.0
+```
+
+## Where to draw the line
+
+Every threshold is parameterised by *something*, and none of those somethings is
+"the answer I want". Two ways to get one. `PotThreshold` takes the false-alarm
+probability directly — it fits a generalised Pareto to the tail of the training
+scores, so the fence can be placed where exceedance has probability `1e-4`, beyond
+the largest score ever observed. And `budget_threshold` needs no labels at all:
+give it the number of alerts a week anyone will read, and it lowers the fence as
+far as that allows and no further.
+
 ## Documentation
 
 <https://ykus4.github.io/hazure/>

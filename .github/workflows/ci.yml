@@ -34,6 +34,11 @@ jobs:
       - name: mypy
         run: uv run mypy
 
+      # The guide promises that running it top to bottom reproduces every number
+      # it shows. This is what makes that true rather than aspirational.
+      - name: the documentation's examples produce the outputs it claims
+        run: uv run python scripts/check_docs.py
+
   test:
     runs-on: ${{ matrix.os }}
     strategy:

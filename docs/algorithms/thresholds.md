@@ -68,6 +68,8 @@ side leaves that side unbounded. This is how every compound detector in the
 library thresholds a magnitude:
 
 ```python
+from hazure import IqrThreshold
+
 IqrThreshold(factor=(None, 3.0))  # -inf below, Q3 + 3 IQR above
 ```
 
@@ -189,6 +191,106 @@ $(0,1)$, and the `stats` extra for SciPy's $t$ distribution.
 
 [^rosner]: Rosner, B. (1983). *Percentage Points for a Generalized ESD
     Many-Outlier Procedure.* Technometrics 25(2), 165–172.
+
+## PotThreshold
+
+Every rule above is parameterised by something about the sample. This one is
+parameterised by the answer: you state the exceedance probability $q$ you are
+willing to accept, and the fence goes wherever that probability lands.
+
+The reason it can is the Pickands–Balkema–de Haan theorem[^pickands]. For almost
+any distribution $F$, the excesses over a threshold $t$ converge in distribution
+as $t$ rises to the tail of $F$:
+
+$$
+F_t(y) = \Pr\bigl[\,X - t \le y \mid X > t\,\bigr]
+\ \longrightarrow \
+G_{\gamma,\sigma}(y) = 1 - \Bigl(1 + \frac{\gamma y}{\sigma}\Bigr)^{-1/\gamma},
+$$
+
+the generalised Pareto distribution, with $G_{0,\sigma}(y) = 1 - e^{-y/\sigma}$ in
+the $\gamma \to 0$ limit. So a *two-parameter* model describes the tail of nearly
+anything, which is what makes the extrapolation legitimate.
+
+Fitting takes $t$ as the `level` quantile of the training scores, keeps the
+$N_t$ excesses over it, and maximises the generalised Pareto likelihood over
+$(\gamma, \sigma)$. Inverting the fitted tail gives the fence: with
+$p = qn/N_t$ — the target probability rescaled to be conditional on having cleared
+$t$ —
+
+$$
+u = t + \frac{\sigma}{\gamma}\Bigl(p^{-\gamma} - 1\Bigr),
+\qquad
+u = t - \sigma \log p \quad (\gamma = 0).
+$$
+
+Three things follow, and each is a way this differs from the rules above.
+
+**It can place a fence beyond the largest score ever observed.**
+`QuantileThreshold(high=0.9999)` on ten thousand scores returns approximately the
+maximum, because an empirical quantile cannot exceed the sample. The fitted tail
+is a model and has no such limit — which is the point, and also the risk: past the
+range of the data you are trusting $G_{\gamma,\sigma}$, not the observations.
+
+**$q$ must be inside the tail.** $p = qn/N_t < 1$ requires $q$ below roughly
+$1 - \texttt{level}$, so `high=0.1` with `level=0.98` is asking about the body of
+the distribution using a model of the tail. Fitting raises rather than answering.
+
+**The two parameters pull against each other.** The convergence above is
+asymptotic in `level`, so a higher `level` is better justified; but it leaves
+fewer excesses to fit two parameters from. Below ten excesses the fit is governed
+by whichever three or four points happened to be largest, so that side reports
+`NaN` instead — the same "an unfitted fence never silently passes everything"
+rule as everywhere else. In practice the default `level = 0.98` wants a few
+thousand training scores.
+
+The maximum likelihood step follows Grimshaw[^grimshaw]: substituting
+$\theta = \gamma/\sigma$ makes the profile maximum over $\gamma$ closed-form,
+$\gamma(\theta) = \overline{\log(1 + \theta Y)}$, and reduces the fit to a scalar
+root of
+
+$$
+\overline{(1 + \theta Y)^{-1}}
+\Bigl[\,1 + \overline{\log(1 + \theta Y)}\,\Bigr] = 1 .
+$$
+
+$\theta = 0$ solves that for every sample and is the exponential case, so it is
+evaluated directly and the search covers the two sides of it separately. Shapes
+below $-1$ are outside the search deliberately: there the likelihood is unbounded,
+maximised by putting the tail's endpoint at the largest excess and letting the
+density diverge, so there is no estimate to find. A sample that light is fitted as
+exponential, which places the fence *higher* — erring towards silence rather than
+towards false alarms.
+
+The lower tail is the same code run on $-s_t$.
+
+### SPOT: the same fence, online
+
+`update` is the streaming form[^siffer]. Each arriving score does one of three
+things:
+
+| the score is | what happens |
+| --- | --- |
+| beyond the fence | flagged, and **discarded** |
+| inside the fence but above $t$ | joins the excesses; $(\gamma, \sigma)$ and $u$ are refitted |
+| below $t$ | only $n$ grows, which lowers $u$ slightly |
+
+Discarding what it flags is the load-bearing detail. An anomaly is not evidence
+about how the *normal* tail behaves, and an adaptive threshold that absorbs its own
+detections is one that talks itself into accepting the next one. The label is
+decided against the fence as it stood *before* the score arrived, because a
+monitor cannot use a point to move the line it is about to judge that point
+against.
+
+[^pickands]: Balkema, A. A. and de Haan, L. (1974). *Residual Life Time at Great
+    Age.* Annals of Probability 2(5), 792–804. Pickands, J. (1975). *Statistical
+    Inference Using Extreme Order Statistics.* Annals of Statistics 3(1), 119–131.
+
+[^grimshaw]: Grimshaw, S. D. (1993). *Computing Maximum Likelihood Estimates for
+    the Generalized Pareto Distribution.* Technometrics 35(2), 185–191.
+
+[^siffer]: Siffer, A., Fouque, P.-A., Termier, A. and Largouet, C. (2017).
+    *Anomaly Detection in Streams with Extreme Value Theory.* KDD '17, 1067–1075.
 
 ## Sides
 

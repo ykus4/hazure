@@ -71,6 +71,20 @@ quality, and time-ordered folds to compute any of them over.
 
 ::: hazure.evaluation
 
+## `hazure.calibration`
+
+Choosing the cut-off: from labelled incidents, or from how many alerts a week
+anyone will read.
+
+::: hazure.calibration
+
+## `hazure.streaming`
+
+Driving a fitted component one observation at a time, for a series that is still
+being produced.
+
+::: hazure.streaming
+
 ## `hazure.methods`
 
 Further method families: spectral residual, Hampel filtering and rolling
@@ -78,6 +92,13 @@ quantile bands, change-point segmentation, matrix-profile discords, and
 STL / MSTL residuals.
 
 ::: hazure.methods
+
+## `hazure.datasets`
+
+Series to try things on: generated with a known answer, or fetched from the
+Numenta Anomaly Benchmark.
+
+::: hazure.datasets
 
 ## `hazure.plotting`
 

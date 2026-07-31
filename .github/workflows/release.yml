@@ -44,16 +44,43 @@ jobs:
       - name: the wheel works on its own
         run: |
           uv run --isolated --no-project --with "$(echo dist/*.whl)" python -c "
+          import sys
           import numpy as np
           import hazure
-          from hazure import SpikeDetector, TimeSeries
+          from hazure import (
+              PotThreshold, SpikeDetector, Stream, TimeSeries, budget_threshold,
+          )
+          from hazure.datasets import compare, make_series
+          from hazure.scoring import DeviationScorer
 
-          time = np.arange(200, dtype=np.int64) * 3_600_000_000_000
-          values = np.zeros(200)
-          values[120] = 9.0
+          forbidden = {'pandas', 'polars', 'pyarrow', 'scipy', 'sklearn',
+                       'matplotlib', 'statsmodels', 'stumpy', 'ruptures', 'numba'}
+          assert not forbidden & set(sys.modules), forbidden & set(sys.modules)
+
+          step = 3_600_000_000_000
+          time = np.arange(4000, dtype=np.int64) * step
+          values = np.random.default_rng(0).normal(0, 1, 4000)
+          values[2000] = 40.0
           series = TimeSeries.from_arrays(time, values)
-          labels = SpikeDetector(window=24).fit_detect(series)
-          assert labels.n_rows == 200
+
+          detector = SpikeDetector(window=24).fit(series)
+          assert detector.detect(series).n_rows == 4000
+
+          # Streaming, the EVT fence, calibration and the sample data all reach
+          # outside the core in ways importing alone would not reveal.
+          stream = Stream(detector, history=48).prime(series)
+          assert stream.update(int(time[-1]) + step, 99.0) == 1.0
+
+          scores = DeviationScorer().fit_score(series)
+          fence = PotThreshold(high=1e-3).fit(scores)
+          assert np.isfinite(fence.high_) and fence.update(1.0) == 0.0
+          assert budget_threshold(scores, alerts=1, per='7d').cut_off > 0
+
+          planted = make_series('spike', n=1000, n_anomalies=2)
+          assert planted.events.n_events == 2
+          assert 'recall' in compare({'s': SpikeDetector(window=24)}, planted)['s']
+
+          assert not forbidden & set(sys.modules), forbidden & set(sys.modules)
           print('ok:', hazure.__version__)
           "
 
