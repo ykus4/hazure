@@ -37,8 +37,10 @@ Runtime dependencies are ``narwhals`` and ``numpy``. SciPy, scikit-learn,
 statsmodels, matplotlib, stumpy and ruptures are extras, imported only by the
 components that need them.
 
-Every public name is importable straight from this package. They are also grouped
-by subject, if you prefer to import from there:
+Every public name is importable straight from this package, apart from the sample
+data in :mod:`hazure.datasets` — a convenience for trying things out rather than
+part of the detection API. Names are also grouped by subject, if you prefer to
+import from there:
 
 ``hazure.detection``
     Ready-made detectors, each a scorer paired with a threshold.
@@ -60,6 +62,13 @@ by subject, if you prefer to import from there:
 ``hazure.methods``
     Further method families: spectral residual, Hampel filtering, change-point
     segmentation, matrix profile discords, STL residuals.
+``hazure.streaming``
+    :class:`Stream`, for driving a fitted component one observation at a time.
+``hazure.calibration``
+    Choosing where to draw the line: from labelled events, or from an alert
+    budget.
+``hazure.datasets``
+    Series to try things on — synthetic, or a benchmark fetched on demand.
 ``hazure.plotting``
     One :func:`~hazure.plotting.plot` function, for looking at the result.
 """
@@ -79,6 +88,7 @@ from hazure._core import (
     parse_duration,
     rolling,
 )
+from hazure.calibration import Calibration, budget_threshold, tune_threshold
 from hazure.compose import Graph, Node, Pipeline
 from hazure.detection import (
     AutoregressionDetector,
@@ -136,6 +146,7 @@ from hazure.features import (
     SumAll,
 )
 from hazure.methods import (
+    Cost,
     DampDetector,
     DampScorer,
     HampelDetector,
@@ -166,6 +177,7 @@ from hazure.scoring import (
     RollingAggregateScorer,
     SeasonalResidualScorer,
 )
+from hazure.streaming import Stream
 from hazure.thresholds import (
     MAD_SCALE,
     EsdThreshold,
@@ -174,10 +186,11 @@ from hazure.thresholds import (
     FixedThreshold,
     IqrThreshold,
     MadThreshold,
+    PotThreshold,
     QuantileThreshold,
 )
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.1.0"
 
 __all__ = [
     "AGGREGATIONS",
@@ -190,7 +203,9 @@ __all__ = [
     "BaseScorer",
     "BaseThreshold",
     "BaseTransformer",
+    "Calibration",
     "Component",
+    "Cost",
     "CustomizedAggregator",
     "CustomizedTransformer",
     "DampDetector",
@@ -233,6 +248,7 @@ __all__ = [
     "PeltDetector",
     "PeltScorer",
     "Pipeline",
+    "PotThreshold",
     "QuantileDetector",
     "QuantileThreshold",
     "RegressionDetector",
@@ -259,6 +275,7 @@ __all__ = [
     "StandardScale",
     "StlDetector",
     "StlResidualScorer",
+    "Stream",
     "SumAll",
     "ThresholdDetector",
     "TimeSeries",
@@ -266,6 +283,7 @@ __all__ = [
     "VoteAggregator",
     "__version__",
     "average_precision",
+    "budget_threshold",
     "detection_delay",
     "detection_delays",
     "double_rolling",
@@ -280,5 +298,6 @@ __all__ = [
     "split_train_test",
     "to_events",
     "to_labels",
+    "tune_threshold",
     "validate_series",
 ]

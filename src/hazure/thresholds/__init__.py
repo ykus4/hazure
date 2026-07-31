@@ -10,7 +10,10 @@ cannot be declared normal.
 from history: a quantile of the training scores, a multiple of their
 inter-quartile range or median absolute deviation, or a formal test of how
 extreme a value can be before it stops looking like a sample from the same
-distribution.
+distribution. :class:`PotThreshold` is parameterised the other way round: you
+give it the false-alarm probability you are willing to accept, and it fits the
+tail of the training scores well enough to place a fence there — including
+beyond the largest score ever seen, which no quantile of a sample can reach.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from hazure.thresholds.fence import MAD_SCALE, Factor, FactorSpec
 from hazure.thresholds.fixed import FixedThreshold
 from hazure.thresholds.iqr import IqrThreshold
 from hazure.thresholds.mad import MadThreshold
+from hazure.thresholds.pot import PotThreshold
 from hazure.thresholds.quantile import QuantileThreshold
 
 __all__ = [
@@ -30,5 +34,6 @@ __all__ = [
     "FixedThreshold",
     "IqrThreshold",
     "MadThreshold",
+    "PotThreshold",
     "QuantileThreshold",
 ]

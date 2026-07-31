@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hazure"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "A lightweight toolkit for rule-based and unsupervised anomaly detection in time series"
 readme = "README.md"
 license = "MIT"
@@ -140,10 +140,14 @@ ignore_missing_imports = true
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 minversion = "8.0"
-testpaths = ["tests"]
+# src is a test path because every docstring example is a test. The examples are
+# what most people read first, so an output that has drifted from the code should
+# fail the build rather than mislead.
+testpaths = ["tests", "src/hazure"]
 addopts = [
     "--strict-markers",
     "--strict-config",
+    "--doctest-modules",
     "-ra",
 ]
 markers = [
