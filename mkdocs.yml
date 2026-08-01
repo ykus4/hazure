@@ -84,6 +84,9 @@ validation:
   unrecognized_links: warn
   anchors: warn
 
+extra_css:
+  - stylesheets/hero.css
+
 extra_javascript:
   - javascripts/mathjax.js
   - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
