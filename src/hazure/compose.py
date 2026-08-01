@@ -634,7 +634,7 @@ class Graph(_Composite):
                 wanted = None if node.columns is None else node.columns[position]
                 label = "" if wanted is None else f"|{', '.join(wanted)}|"
                 lines.append(f"  {source} -->{label} {name}")
-        lines.append(f'  {plan.terminal} --> output((["output"]))')
+        lines.append(f'  {plan.terminal} --> output(["output"])')
         return "\n".join(lines)
 
     def __repr__(self) -> str:

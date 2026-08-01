@@ -299,6 +299,15 @@ def test_a_graph_renders_as_mermaid() -> None:
     assert "verdict --> output" in mermaid
 
 
+def test_mermaid_gives_each_node_a_single_shape() -> None:
+    # A shape nested in a shape — output((["output"])) — parses nowhere, and
+    # the edge assertion above matches whether or not the node is well formed.
+    mermaid = agreeing_graph(AndAgg()).to_mermaid()
+    assert '(["input"])' in mermaid
+    assert 'verdict --> output(["output"])' in mermaid
+    assert "((" not in mermaid
+
+
 def test_a_pipeline_renders_as_mermaid() -> None:
     mermaid = detector_pipeline().to_mermaid()
     assert "input --> smooth" in mermaid
