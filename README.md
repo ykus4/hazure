@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/assets/hero.png" alt="hazure" width="720">
+  <!-- Absolute, because this file is also PyPI's long description and PyPI
+       does not resolve links relative to the repository. The image is on
+       `main`, so the URL is live for readers of any branch. -->
+  <img src="https://raw.githubusercontent.com/ykus4/hazure/main/docs/assets/hero.png" alt="hazure" width="720">
 </p>
 
 
