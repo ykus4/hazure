@@ -1,3 +1,10 @@
+/* Narrower than the column it sits in, so it needs centring; Markdown's image
+   syntax has no way to say so and Material's `align` only offers floats. */
+img.hero {
+  display: block;
+  margin-inline: auto;
+}
+
 /* The banner is drawn on white, which is a glaring panel under the slate
    scheme. Inverting flips the paper to near-black and the wordmark to near-
    white; the following 180° hue rotation puts the two data colours back where
