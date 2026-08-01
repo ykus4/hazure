@@ -1,4 +1,4 @@
-![hazure](assets/hero.png)
+![hazure](assets/hero.png){ .hero }
 
 You have a metric — requests per second, queue depth, a sensor reading — you
 suspect it occasionally misbehaves, and you have no record of when it did.

@@ -1,0 +1,7 @@
+/* The banner is drawn on white, which is a glaring panel under the slate
+   scheme. Inverting flips the paper to near-black and the wordmark to near-
+   white; the following 180° hue rotation puts the two data colours back where
+   they started, so the trace stays teal and the excursion stays orange. */
+[data-md-color-scheme="slate"] img.hero {
+  filter: invert(1) hue-rotate(180deg);
+}
