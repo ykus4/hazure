@@ -1,4 +1,6 @@
-<img src="docs/assets/hero.png" alt="hazure" width="720">
+<p align="center">
+  <img src="docs/assets/hero.png" alt="hazure" width="720">
+</p>
 
 
 You have a metric — requests per second, queue depth, a sensor reading — you
