@@ -1,6 +1,4 @@
-<!-- Absolute URL rather than a repo-relative path: this README is also the
-     PyPI long description, where relative links do not resolve. -->
-![hazure](https://raw.githubusercontent.com/ykus4/hazure/main/docs/assets/hero.png)
+![hazure](docs/assets/hero.png)
 
 You have a metric — requests per second, queue depth, a sensor reading — you
 suspect it occasionally misbehaves, and you have no record of when it did.
