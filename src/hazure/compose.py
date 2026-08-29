@@ -36,7 +36,7 @@ from hazure._core.component import (
 from hazure._core.series import TimeSeries
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Mapping, Sequence
+    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 
 __all__ = ["Graph", "Node", "Pipeline"]
 
@@ -229,18 +229,9 @@ class Pipeline(_Composite):
         if not self.steps:
             msg = "A Pipeline needs at least one step."
             raise ValueError(msg)
-        names = [name for name, _ in self.steps]
-        if len(set(names)) != len(names):
-            repeated = sorted({n for n in names if names.count(n) > 1})
-            msg = f"Step names must be unique; repeated: {repeated}."
-            raise ValueError(msg)
+        _check_unique_names([name for name, _ in self.steps], "Step")
         for name, component in self.steps:
-            if not isinstance(component, Component | BaseAggregator):
-                msg = (
-                    f"Step {name!r} holds {type(component).__name__}, which is "
-                    f"not a hazure component."
-                )
-                raise TypeError(msg)
+            _check_is_component(component, "Step", name)
 
     @property
     def terminal(self) -> Component | BaseAggregator:
@@ -415,15 +406,43 @@ class Graph(_Composite):
         if self._plan is not None:
             return self._plan
 
+        names = self._validate()
+        order = self._topological_order()
+
+        consumed = {i for node in self.nodes for i in node.inputs}
+        unconsumed = [n for n in names if n not in consumed]
+        if len(unconsumed) != 1:
+            msg = (
+                f"A Graph must have exactly one output, but {unconsumed} are "
+                f"unconsumed. Feed the surplus into an aggregator, or drop it."
+            )
+            raise ValueError(msg)
+
+        self._plan = _Plan(order=order, terminal=unconsumed[0])
+        return self._plan
+
+    def _validate(self) -> list[str]:
+        """Check every node is nameable, wired to something, and a component.
+
+        Returns
+        -------
+        list of str
+            The node names, in declaration order, for the caller to plan with.
+
+        Raises
+        ------
+        ValueError
+            There are no nodes, a name is repeated or reserved, or a node has no
+            inputs or names one that does not exist.
+        TypeError
+            A node holds something that is not a hazure component.
+        """
         if not self.nodes:
             msg = "A Graph needs at least one node."
             raise ValueError(msg)
 
         names = [node.name for node in self.nodes]
-        if len(set(names)) != len(names):
-            repeated = sorted({n for n in names if names.count(n) > 1})
-            msg = f"Node names must be unique; repeated: {repeated}."
-            raise ValueError(msg)
+        _check_unique_names(names, "Node")
         if SOURCE in names:
             msg = f"{SOURCE!r} is reserved for the source data; rename that node."
             raise ValueError(msg)
@@ -440,26 +459,8 @@ class Graph(_Composite):
                     f"exist. Available: {sorted(known)}."
                 )
                 raise ValueError(msg)
-            if not isinstance(node.model, Component | BaseAggregator):
-                msg = (
-                    f"Node {node.name!r} holds {type(node.model).__name__}, "
-                    f"which is not a hazure component."
-                )
-                raise TypeError(msg)
-
-        order = self._topological_order()
-
-        consumed = {i for node in self.nodes for i in node.inputs}
-        unconsumed = [n for n in names if n not in consumed]
-        if len(unconsumed) != 1:
-            msg = (
-                f"A Graph must have exactly one output, but {unconsumed} are "
-                f"unconsumed. Feed the surplus into an aggregator, or drop it."
-            )
-            raise ValueError(msg)
-
-        self._plan = _Plan(order=order, terminal=unconsumed[0])
-        return self._plan
+            _check_is_component(node.model, "Node", node.name)
+        return names
 
     def _topological_order(self) -> list[str]:
         """Order nodes so every node follows all of its inputs."""
@@ -534,24 +535,41 @@ class Graph(_Composite):
         ]
         return labelled[0].join(*labelled[1:])
 
+    def _execute(
+        self, ts: TimeSeries, step: Callable[[Node, TimeSeries], TimeSeries]
+    ) -> dict[str, TimeSeries]:
+        """Walk the graph in dependency order, returning what every node made.
+
+        Fitting and running differ only in what happens at each node, so they
+        share the walk and pass their own ``step`` — which keeps the source, the
+        ordering and the input-gathering described in exactly one place.
+
+        Parameters
+        ----------
+        ts
+            The graph's input, which enters as the node named :data:`SOURCE`.
+        step
+            What to do at each node: :func:`_fit_and_run` or :func:`_run`.
+
+        Returns
+        -------
+        dict
+            Every node's output, keyed by name, including the source.
+        """
+        plan = self._resolve()
+        lookup = self._by_name()
+        produced: dict[str, TimeSeries] = {SOURCE: ts}
+        for name in plan.order:
+            node = lookup[name]
+            produced[name] = step(node, self._gather(node, produced))
+        return produced
+
     def _learn(self, ts: TimeSeries) -> None:
         """Fit every node in dependency order, on its own resolved input."""
-        plan = self._resolve()
-        lookup = self._by_name()
-        produced: dict[str, TimeSeries] = {SOURCE: ts}
-        for name in plan.order:
-            node = lookup[name]
-            incoming = self._gather(node, produced)
-            produced[name] = _fit_and_run(node, incoming)
+        self._execute(ts, _fit_and_run)
 
     def _compute(self, ts: TimeSeries) -> TimeSeries:
-        plan = self._resolve()
-        lookup = self._by_name()
-        produced: dict[str, TimeSeries] = {SOURCE: ts}
-        for name in plan.order:
-            node = lookup[name]
-            produced[name] = _run(node, self._gather(node, produced))
-        return produced[plan.terminal]
+        return self._execute(ts, _run)[self._resolve().terminal]
 
     def trace(self, data: Any) -> dict[str, Any]:
         """Run the graph and return every node's output, not just the last.
@@ -579,13 +597,7 @@ class Graph(_Composite):
             msg = "Fit the Graph before tracing it."
             raise RuntimeError(msg)
 
-        ts = TimeSeries.from_any(data)
-        plan = self._resolve()
-        lookup = self._by_name()
-        produced: dict[str, TimeSeries] = {SOURCE: ts}
-        for name in plan.order:
-            node = lookup[name]
-            produced[name] = _run(node, self._gather(node, produced))
+        produced = self._execute(TimeSeries.from_any(data), _run)
         return {name: series.to_native() for name, series in produced.items()}
 
     # -- description --------------------------------------------------------
@@ -650,6 +662,52 @@ def _fit_and_run(node: Node, incoming: TimeSeries) -> TimeSeries:
     if isinstance(model, BaseAggregator):
         return model._combine(incoming)
     return model.fit(incoming).run(incoming)
+
+
+def _check_unique_names(names: Sequence[str], kind: str) -> None:
+    """Refuse a structure that names two of its parts the same thing.
+
+    Parameters
+    ----------
+    names
+        The names, in declaration order.
+    kind
+        What the parts are called, for the message: ``"Step"`` or ``"Node"``.
+
+    Raises
+    ------
+    ValueError
+        A name appears more than once.
+    """
+    if len(set(names)) != len(names):
+        repeated = sorted({n for n in names if names.count(n) > 1})
+        msg = f"{kind} names must be unique; repeated: {repeated}."
+        raise ValueError(msg)
+
+
+def _check_is_component(model: Any, kind: str, name: str) -> None:
+    """Refuse a part that is not something this package knows how to run.
+
+    Parameters
+    ----------
+    model
+        Whatever was passed in the part's place.
+    kind
+        What the part is called, for the message: ``"Step"`` or ``"Node"``.
+    name
+        The part's name.
+
+    Raises
+    ------
+    TypeError
+        ``model`` is not a component or an aggregator.
+    """
+    if not isinstance(model, Component | BaseAggregator):
+        msg = (
+            f"{kind} {name!r} holds {type(model).__name__}, which is not a "
+            f"hazure component."
+        )
+        raise TypeError(msg)
 
 
 def _run(node: Node, incoming: TimeSeries) -> TimeSeries:

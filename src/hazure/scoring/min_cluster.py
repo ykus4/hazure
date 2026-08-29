@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import numpy as np
 
 from hazure import BaseScorer
-from hazure._core.series import complete_rows
+from hazure._core.missing import complete_rows
 
 if TYPE_CHECKING:
     from hazure import TimeSeries

@@ -192,21 +192,9 @@ def make_series(
     for stretch in stretches:
         labels[stretch] = 1.0
 
-    # A volatility shift is the one kind that changes how the noise is *drawn*
-    # rather than what is added to it, so it has to be settled before the noise
-    # exists. Scaling the draw is what makes `strength` the multiplier it claims
-    # to be: adding a second independent draw instead would give a spread of
-    # noise * sqrt(1 + (strength - 1) ** 2), which is neither the documented
-    # number nor a memorable one.
-    spread = np.full(n, float(noise), dtype=np.float64)
-    if kind == "volatility_shift":
-        for stretch in stretches:
-            spread[stretch] = noise * strength
-
+    spread = _noise_spread(kind, n, stretches, noise, strength)
     rng = np.random.default_rng(seed)
-    values = np.full(n, float(level), dtype=np.float64)
-    if period is not None:
-        values += amplitude * np.sin(2.0 * np.pi * np.arange(n) / period)
+    values = _baseline_values(n, level, period, amplitude)
     values += rng.standard_normal(n) * spread
 
     for stretch in stretches:
@@ -308,6 +296,75 @@ def _positions(n: int, n_anomalies: int, width: int) -> list[int]:
         return [(first + last) // 2]
     stride = (last - first) / (n_anomalies - 1)
     return [first + round(index * stride) for index in range(n_anomalies)]
+
+
+def _noise_spread(
+    kind: str,
+    n: int,
+    stretches: list[slice],
+    noise: float,
+    strength: float,
+) -> NDArray[np.float64]:
+    """Set the standard deviation the noise at each sample is drawn with.
+
+    A volatility shift is the one kind that changes how the noise is *drawn*
+    rather than what is added to it, so it has to be settled before the noise
+    exists — which is why it is the only kind :func:`_plant` has nothing to do
+    for. Scaling the draw is also what makes ``strength`` the multiplier it
+    claims to be: adding a second independent draw instead would give a spread
+    of ``noise * sqrt(1 + (strength - 1) ** 2)``, which is neither the
+    documented number nor a memorable one.
+
+    Parameters
+    ----------
+    kind
+        Which shape is being planted. Every kind but ``"volatility_shift"``
+        leaves the spread flat.
+    n
+        Length of the series.
+    stretches
+        The samples each anomaly occupies.
+    noise, strength
+        As passed to :func:`make_series`.
+
+    Returns
+    -------
+    numpy.ndarray
+        Per-sample standard deviation, ``noise`` everywhere the series is
+        behaving.
+    """
+    spread = np.full(n, float(noise), dtype=np.float64)
+    if kind == "volatility_shift":
+        for stretch in stretches:
+            spread[stretch] = noise * strength
+    return spread
+
+
+def _baseline_values(
+    n: int, level: float, period: int | None, amplitude: float
+) -> NDArray[np.float64]:
+    """Build the series as it would look with no noise and no anomaly.
+
+    This is the thing every kind is a departure from, so the anomalies are
+    planted by adding to it rather than by being written into it.
+
+    Parameters
+    ----------
+    n
+        Length of the series.
+    level, period, amplitude
+        As passed to :func:`make_series`.
+
+    Returns
+    -------
+    numpy.ndarray
+        The baseline, flat at ``level`` when ``period`` is None and a sine of
+        peak deviation ``amplitude`` around it otherwise.
+    """
+    values = np.full(n, float(level), dtype=np.float64)
+    if period is not None:
+        values += amplitude * np.sin(2.0 * np.pi * np.arange(n) / period)
+    return values
 
 
 def _plant(

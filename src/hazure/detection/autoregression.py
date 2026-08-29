@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hazure.detection.aggregation import _upper_iqr_threshold
 from hazure.detection.signed_score import SignedScoreDetector
 from hazure.scoring import (
     AutoregressionResidualScorer,
-)
-from hazure.thresholds import (
-    IqrThreshold,
 )
 
 if TYPE_CHECKING:
@@ -89,4 +87,4 @@ class AutoregressionDetector(SignedScoreDetector):
         self.scorer = AutoregressionResidualScorer(
             n_steps=self.n_steps, step_size=self.step_size, regressor=self.regressor
         )
-        self.threshold = IqrThreshold(factor=(None, self.factor))
+        self.threshold = _upper_iqr_threshold(self.factor)

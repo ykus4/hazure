@@ -686,6 +686,8 @@ def double_rolling(
         )
         raise ValueError(msg)
 
+    # The annotations are load-bearing: the argument types are already unions,
+    # and without them `_as_pair`'s type variable widens to `object`.
     windows: tuple[Window, Window] = _as_pair(window)
     left_window, right_window = windows
     aggs: tuple[str, str] = _as_pair(agg)
@@ -722,12 +724,23 @@ def double_rolling(
         q=q,
     )[::-1]
 
+    return _compare(left, right, diff)
+
+
+def _compare(
+    left: NDArray[np.float64],
+    right: NDArray[np.float64],
+    diff: Literal["l1", "l2", "diff", "rel_diff", "abs_rel_diff"],
+) -> NDArray[np.float64]:
+    """Measure how far the right window's summary sits from the left one's."""
     if diff == "l1":
         return np.abs(right - left)
     if diff == "l2":
         return np.sqrt((right - left) ** 2)
     if diff == "diff":
         return right - left
+    # A left window summarising to zero has no scale to be relative to, so the
+    # division is left to produce inf/NaN rather than being special-cased.
     with np.errstate(invalid="ignore", divide="ignore"):
         relative = (right - left) / left
     return relative if diff == "rel_diff" else np.abs(relative)

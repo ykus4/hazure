@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hazure.detection.aggregation import _CENTRE_AGGS, _check_agg
+from hazure.detection.aggregation import (
+    _CENTRE_AGGS,
+    _check_agg,
+    _upper_iqr_threshold,
+)
 from hazure.detection.signed_score import SignedScoreDetector
 from hazure.scoring import (
     DoubleRollingScorer,
-)
-from hazure.thresholds import (
-    IqrThreshold,
 )
 
 if TYPE_CHECKING:
@@ -106,4 +107,4 @@ class SpikeDetector(SignedScoreDetector):
             diff="diff",
             min_periods=(self.min_periods, 1),
         )
-        self.threshold = IqrThreshold(factor=(None, self.factor))
+        self.threshold = _upper_iqr_threshold(self.factor)

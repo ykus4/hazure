@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from hazure import BaseScorer
-from hazure._core.series import complete_rows
+from hazure._core.missing import complete_rows
 from hazure.features import (
     RegressionResidual,
     Retrospect,

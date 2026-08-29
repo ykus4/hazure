@@ -33,5 +33,5 @@ class PcaReconstruction(_PcaBase):
     def _compute(self, ts: TimeSeries) -> TimeSeries:
         scores, complete = self._project(ts)
         rebuilt = np.full_like(ts.values, np.nan)
-        rebuilt[complete] = self.mean_ + scores[complete] @ self.components_
+        rebuilt[complete] = self._reconstruct(scores[complete])
         return ts.wrap(rebuilt, ts.columns)

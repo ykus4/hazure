@@ -96,7 +96,7 @@ class PcaColumnError(_PcaBase):
     def _compute(self, ts: TimeSeries) -> TimeSeries:
         scores, complete = self._project(ts)
         parts = np.full_like(ts.values, np.nan)
-        rebuilt = self.mean_ + scores[complete] @ self.components_
+        rebuilt = self._reconstruct(scores[complete])
         # The same residual PcaReconstructionError squares and sums, left
         # unsummed: one term per column, so the columns are the score's addends.
         parts[complete] = (ts.values[complete] - rebuilt) ** 2

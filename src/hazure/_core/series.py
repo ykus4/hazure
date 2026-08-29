@@ -106,6 +106,25 @@ class Origin:
             index_name="time",
         )
 
+    @classmethod
+    def on_index(
+        cls, backend: str, container: Literal["series", "frame"], index: Any
+    ) -> Origin:
+        """Return the origin for data whose timestamps arrived on a pandas index.
+
+        ``time_unit`` and ``time_zone`` are left at their defaults: reading the
+        index fills them in, and only reading it can.
+        """
+        return cls(
+            backend=backend,
+            container=container,
+            time_on_index=True,
+            time_name=index.name if index.name else "time",
+            time_unit="ns",
+            time_zone=None,
+            index_name=index.name,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class TimeSeries:
@@ -280,48 +299,10 @@ class TimeSeries:
         drop_duplicates: bool,
     ) -> TimeSeries:
         """Validate, order and de-duplicate, then freeze into a ``TimeSeries``."""
-        if len(columns) != values.shape[1]:
-            msg = (
-                f"Got {len(columns)} column names for {values.shape[1]} "
-                f"columns of data."
-            )
-            raise ValueError(msg)
-        if len(set(columns)) != len(columns):
-            duplicated = sorted({c for c in columns if columns.count(c) > 1})
-            msg = f"Column names must be unique; duplicated: {duplicated}."
-            raise ValueError(msg)
-        if time_ns.shape[0] != values.shape[0]:
-            msg = (
-                f"Time axis has {time_ns.shape[0]} entries but values have "
-                f"{values.shape[0]} rows."
-            )
-            raise ValueError(msg)
-
-        # np.diff on an empty or single-element array is empty, so both the
-        # ordering and duplicate checks below degrade to no-ops naturally.
-        steps = np.diff(time_ns)
-        if sort and steps.size and bool(np.any(steps < 0)):
-            order = np.argsort(time_ns, kind="stable")
-            time_ns = time_ns[order]
-            values = values[order]
-            steps = np.diff(time_ns)
-        elif steps.size and bool(np.any(steps < 0)):
-            msg = "Time axis is not sorted; pass sort=True to reorder it."
-            raise ValueError(msg)
-
-        if steps.size and bool(np.any(steps == 0)):
-            if not drop_duplicates:
-                n_dup = int(np.count_nonzero(steps == 0))
-                msg = (
-                    f"Time axis has {n_dup} duplicated timestamp(s); pass "
-                    f"drop_duplicates=True to keep the first of each."
-                )
-                raise ValueError(msg)
-            keep = np.ones(time_ns.shape[0], dtype=bool)
-            keep[1:] = steps != 0
-            time_ns = time_ns[keep]
-            values = values[keep]
-
+        _check_shape(time_ns, values, columns)
+        time_ns, values = _order_and_deduplicate(
+            time_ns, values, sort=sort, drop_duplicates=drop_duplicates
+        )
         return cls(
             time=np.ascontiguousarray(time_ns, dtype=np.int64),
             values=np.ascontiguousarray(values, dtype=np.float64),
@@ -491,36 +472,24 @@ class TimeSeries:
             return self
 
         parts = (self, *others)
-        names: list[str] = []
-        for part in parts:
-            for name in part.columns:
-                if name in names:
-                    msg = (
-                        f"Cannot join: column {name!r} appears in more than one series."
-                    )
-                    raise ValueError(msg)
-                names.append(name)
+        names = _concatenated_names(parts)
 
-        axis = parts[0].time
-        for part in parts[1:]:
-            if part.time.shape != axis.shape or not np.array_equal(part.time, axis):
-                axis = np.union1d(axis, part.time)
-                break
-        else:
-            # Every axis was identical, so the columns line up positionally.
+        # Provenance is carried unchanged rather than forced to "frame": joining
+        # is often a step on the way back down to one column, as when an
+        # aggregator combines several label series, and the caller who passed a
+        # series should get a series back.
+        if all(_same_axis(part.time, self.time) for part in others):
+            # Every axis is identical, so the columns line up positionally.
             return TimeSeries(
-                time=axis,
+                time=self.time,
                 values=np.hstack([p.values for p in parts]),
                 columns=tuple(names),
                 freq=self.freq,
-                # Provenance is carried unchanged rather than forced to "frame":
-                # joining is often a step on the way back down to one column, as
-                # when an aggregator combines several label series, and the
-                # caller who passed series should get a series back.
                 origin=self.origin,
             )
 
-        for part in parts[1:]:
+        axis = self.time
+        for part in others:
             axis = np.union1d(axis, part.time)
 
         merged = np.full((axis.shape[0], len(names)), np.nan, dtype=np.float64)
@@ -645,6 +614,90 @@ class TimeSeries:
 
 
 # ---------------------------------------------------------------------------
+# assembly helpers
+# ---------------------------------------------------------------------------
+
+
+def _concatenated_names(parts: Sequence[TimeSeries]) -> list[str]:
+    """Return every part's columns in order, refusing a name used twice."""
+    names: list[str] = []
+    for part in parts:
+        for name in part.columns:
+            if name in names:
+                msg = f"Cannot join: column {name!r} appears in more than one series."
+                raise ValueError(msg)
+            names.append(name)
+    return names
+
+
+def _same_axis(left: NDArray[np.int64], right: NDArray[np.int64]) -> bool:
+    """Report whether two time axes hold the same instants in the same order."""
+    return left.shape == right.shape and bool(np.array_equal(left, right))
+
+
+def _check_shape(
+    time_ns: NDArray[np.int64],
+    values: NDArray[np.float64],
+    columns: tuple[str, ...],
+) -> None:
+    """Fail unless the names, the values and the time axis agree on their shape."""
+    if len(columns) != values.shape[1]:
+        msg = f"Got {len(columns)} column names for {values.shape[1]} columns of data."
+        raise ValueError(msg)
+    if len(set(columns)) != len(columns):
+        duplicated = sorted({c for c in columns if columns.count(c) > 1})
+        msg = f"Column names must be unique; duplicated: {duplicated}."
+        raise ValueError(msg)
+    if time_ns.shape[0] != values.shape[0]:
+        msg = (
+            f"Time axis has {time_ns.shape[0]} entries but values have "
+            f"{values.shape[0]} rows."
+        )
+        raise ValueError(msg)
+
+
+def _order_and_deduplicate(
+    time_ns: NDArray[np.int64],
+    values: NDArray[np.float64],
+    *,
+    sort: bool,
+    drop_duplicates: bool,
+) -> tuple[NDArray[np.int64], NDArray[np.float64]]:
+    """Return the rows sorted by time and carrying one observation per instant.
+
+    Whether being out of order or repeating an instant is an error or something
+    to repair is the caller's choice, which is what ``sort`` and
+    ``drop_duplicates`` express.
+    """
+    # np.diff on an empty or single-element array is empty, so both checks below
+    # degrade to no-ops naturally.
+    steps = np.diff(time_ns)
+    if steps.size and bool(np.any(steps < 0)):
+        if not sort:
+            msg = "Time axis is not sorted; pass sort=True to reorder it."
+            raise ValueError(msg)
+        order = np.argsort(time_ns, kind="stable")
+        time_ns = time_ns[order]
+        values = values[order]
+        steps = np.diff(time_ns)
+
+    if steps.size and bool(np.any(steps == 0)):
+        if not drop_duplicates:
+            n_dup = int(np.count_nonzero(steps == 0))
+            msg = (
+                f"Time axis has {n_dup} duplicated timestamp(s); pass "
+                f"drop_duplicates=True to keep the first of each."
+            )
+            raise ValueError(msg)
+        keep = np.ones(time_ns.shape[0], dtype=bool)
+        keep[1:] = steps != 0
+        time_ns = time_ns[keep]
+        values = values[keep]
+
+    return time_ns, values
+
+
+# ---------------------------------------------------------------------------
 # ingest helpers
 # ---------------------------------------------------------------------------
 
@@ -662,27 +715,7 @@ def _ingest(
     """
     series = nw.from_native(data, series_only=True, pass_through=True)
     if isinstance(series, nw.Series):
-        index = nw.maybe_get_index(series)
-        if index is None or not _is_temporal_index(index):
-            msg = (
-                f"{_describe(data)} carries no time axis. Give it a "
-                f"DatetimeIndex, or pass a dataframe with a temporal column."
-            )
-            raise TypeError(msg)
-        name = series.name if series.name else "value"
-        return (
-            series.rename(name).to_frame(),
-            Origin(
-                backend=series.implementation.name.lower(),
-                container="series",
-                time_on_index=True,
-                time_name=index.name if index.name else "time",
-                time_unit="ns",
-                time_zone=None,
-                index_name=index.name,
-            ),
-            index,
-        )
+        return _ingest_series(series, source=data)
 
     frame = nw.from_native(data, eager_only=True, pass_through=True)
     if not isinstance(frame, nw.DataFrame):
@@ -691,6 +724,30 @@ def _ingest(
             f"polars or pyarrow object, or use TimeSeries.from_arrays."
         )
         raise TypeError(msg)
+    return _ingest_frame(frame, source=data, time_name=time_name)
+
+
+def _ingest_series(
+    series: nw.Series[Any], *, source: Any
+) -> tuple[nw.DataFrame[Any], Origin, Any]:
+    """Normalise a 1-D series, whose time axis can only be its index."""
+    index = nw.maybe_get_index(series)
+    if index is None or not _is_temporal_index(index):
+        msg = (
+            f"{_describe(source)} carries no time axis. Give it a "
+            f"DatetimeIndex, or pass a dataframe with a temporal column."
+        )
+        raise TypeError(msg)
+    name = series.name if series.name else "value"
+    origin = Origin.on_index(series.implementation.name.lower(), "series", index)
+    return series.rename(name).to_frame(), origin, index
+
+
+def _ingest_frame(
+    frame: nw.DataFrame[Any], *, source: Any, time_name: str | None
+) -> tuple[nw.DataFrame[Any], Origin, Any]:
+    """Normalise a 2-D frame, whose time axis may be an index or a column."""
+    backend = frame.implementation.name.lower()
 
     # A pandas frame keeps its time on the index unless the caller pointed at a
     # column explicitly; polars and pyarrow always carry it in a column.
@@ -700,34 +757,21 @@ def _ingest(
         and _is_temporal_index(index)
         and (time_name is None or time_name not in frame.columns)
     ):
-        return (
-            frame,
-            Origin(
-                backend=frame.implementation.name.lower(),
-                container="frame",
-                time_on_index=True,
-                time_name=index.name if index.name else "time",
-                time_unit="ns",
-                time_zone=None,
-                index_name=index.name,
-            ),
-            index,
-        )
+        return frame, Origin.on_index(backend, "frame", index), index
 
-    resolved = _resolve_time_column(frame, requested=time_name, source=_describe(data))
-    return (
-        frame,
-        Origin(
-            backend=frame.implementation.name.lower(),
-            container="frame",
-            time_on_index=False,
-            time_name=resolved,
-            time_unit="ns",
-            time_zone=None,
-            index_name=resolved,
-        ),
-        None,
+    resolved = _resolve_time_column(
+        frame, requested=time_name, source=_describe(source)
     )
+    origin = Origin(
+        backend=backend,
+        container="frame",
+        time_on_index=False,
+        time_name=resolved,
+        time_unit="ns",
+        time_zone=None,
+        index_name=resolved,
+    )
+    return frame, origin, None
 
 
 def _is_temporal_index(index: Any) -> bool:
@@ -896,11 +940,3 @@ def _format_ns(nanoseconds: int) -> str:
 def _describe(data: Any) -> str:
     """Name an object well enough to make an error message actionable."""
     return f"{type(data).__module__}.{type(data).__qualname__}"
-
-
-def complete_rows(values: NDArray[np.float64]) -> NDArray[np.bool_]:
-    """Mark rows with no missing value, the only rows a row-wise model can use."""
-    usable: NDArray[np.bool_] = np.asarray(
-        ~np.isnan(values).any(axis=1), dtype=np.bool_
-    )
-    return usable

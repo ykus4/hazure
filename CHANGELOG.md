@@ -6,6 +6,23 @@ Notable changes to `hazure`, newest first. The format follows
 version is 0, a minor bump may still break an interface, and the changelog will
 say so.
 
+## Unreleased
+
+### Fixed
+
+- **A score panel no longer redraws the data.** `plot` decided what each panel
+  showed by matching its column names against the data's, so a score named after
+  the column it scored — which is what a scorer produces — was drawn as the
+  series again. Panels now carry the series they came from, and names no longer
+  have to be unique across the two.
+
+### Changed
+
+- Internal refactoring throughout, with no change to any public interface: the
+  graph walk, the plotting entry point and the dispatch in `hazure.evaluation`
+  are each described in one place rather than several, and the rules for reading
+  a gap — in observations and in labels — now live together in one module.
+
 ## 0.1.0 — 2026-07-31
 
 The first release. Everything below is the initial development work, so there is

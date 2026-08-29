@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
-from hazure.evaluation.metrics import _dispatch, _joined
+from hazure.evaluation.metrics import _dispatch, _joined, _owning_event
 from hazure.events import Events, to_events
 
 if TYPE_CHECKING:
@@ -224,10 +224,9 @@ def _event_delays(truth: Events, guess: Events) -> NDArray[np.float64]:
     if overlap.n_events == 0:
         return delays
 
-    # Every piece of the intersection lies inside exactly one true event, and
-    # the pieces are sorted by start, so the first piece an event owns is its
-    # earliest overlap. np.unique reports the first index of each owner.
-    owner = np.searchsorted(truth.bounds[:, 0], overlap.bounds[:, 0], side="right") - 1
+    # The pieces come sorted by start, so the first piece an event owns is its
+    # earliest overlap, and np.unique reports the first index of each owner.
+    owner = _owning_event(truth, overlap)
     detected, first = np.unique(owner, return_index=True)
     # The intersection is clipped to the true event, so its start is never
     # before the event's: a prediction that opened earlier lands on 0 here

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from hazure import TimeSeries, parse_duration
+from hazure._core.missing import as_flags
 from hazure.events.interval import Events
 
 if TYPE_CHECKING:
@@ -288,9 +289,7 @@ def _resolve_period(
 
 def _column_events(ts: TimeSeries, name: str, period: int | None) -> Events:
     """Turn one label column into events under the resolved semantics."""
-    values = ts.column_values(name)
-    flagged = np.clip(np.nan_to_num(values, nan=0.0), 0.0, 1.0) == 1.0
-    starts = ts.time[flagged]
+    starts = ts.time[as_flags(ts.column_values(name))]
     if starts.size == 0:
         return Events.empty(origin=ts.origin)
 
