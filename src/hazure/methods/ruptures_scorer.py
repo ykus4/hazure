@@ -7,8 +7,9 @@ from typing import TYPE_CHECKING, Any, Final
 
 import numpy as np
 
+from hazure._core.missing import fill_gaps
 from hazure.methods.breakpoint_scorer import _BreakpointScorer
-from hazure.methods.pelt_scorer import _default_penalty
+from hazure.methods.pelt_scorer import _resolve_penalty
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -100,26 +101,22 @@ class RupturesScorer(_BreakpointScorer):
         algorithm = _ruptures_algorithm(self.model, self.cost)
 
         missing = np.isnan(values)
-        dense = values
-        if bool(missing.any()):
-            if bool(missing.all()):
-                self.penalty_ = math.nan
-                return np.zeros(0, dtype=np.int64)
-            positions = np.arange(values.shape[0], dtype=np.float64)
-            dense = values.copy()
-            dense[missing] = np.interp(
-                positions[missing], positions[~missing], values[~missing]
-            )
+        if bool(missing.all()):
+            # Interpolation has nothing to work from, and a series with no
+            # observation in it has no regime to change between either.
+            self.penalty_ = math.nan
+            return np.zeros(0, dtype=np.int64)
+        dense = fill_gaps(values, missing)
 
         fitted = algorithm.fit(dense.reshape(-1, 1))
         if self.n_bkps is not None:
             self.penalty_ = math.nan
             found = fitted.predict(n_bkps=int(self.n_bkps))
         else:
-            self.penalty_ = (
-                _default_penalty(values, "l1" if self.cost == "l1" else "l2")
-                if self.penalty is None
-                else float(self.penalty)
+            # The penalty is derived from the observed values, not the filled
+            # ones, so interpolated stretches cannot flatter the noise estimate.
+            self.penalty_ = _resolve_penalty(
+                self.penalty, values, "l1" if self.cost == "l1" else "l2"
             )
             found = fitted.predict(pen=self.penalty_)
         # ruptures reports the end of each segment, so the last entry is the

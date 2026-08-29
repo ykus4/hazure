@@ -113,13 +113,7 @@ class SeasonalDecomposition(BaseTransformer):
 
     def _learn(self, ts: TimeSeries) -> None:
         self._check_component()
-        if ts.freq is None:
-            msg = (
-                "SeasonalDecomposition needs a regular time axis to line up "
-                "cycles; this series has an irregular or unknown sampling "
-                "interval. Resample it first."
-            )
-            raise ValueError(msg)
+        step = _require_regular(ts)
 
         values = ts.values[:, 0]
         period = _detect_period(values) if self.period is None else int(self.period)
@@ -151,7 +145,7 @@ class SeasonalDecomposition(BaseTransformer):
         # deviation; without one it has nowhere else to live.
         self.seasonal_ = profile - profile.mean() if self.trend else profile
         self._datum = int(ts.time[0])
-        self._step = int(ts.freq)
+        self._step = step
 
     # -- application --------------------------------------------------------
 
@@ -173,14 +167,7 @@ class SeasonalDecomposition(BaseTransformer):
 
     def _phase(self, ts: TimeSeries) -> NDArray[np.int64]:
         """Locate each row in the cycle, counting from the training datum."""
-        if ts.freq is None:
-            msg = (
-                "SeasonalDecomposition needs a regular time axis to line up "
-                "cycles; this series has an irregular or unknown sampling "
-                "interval. Resample it first."
-            )
-            raise ValueError(msg)
-        if ts.freq != self._step:
+        if _require_regular(ts) != self._step:
             msg = (
                 f"Trained on a series sampled every {self._step} ns but asked "
                 f"to transform one sampled every {ts.freq} ns. Resample to the "
@@ -216,6 +203,37 @@ class SeasonalDecomposition(BaseTransformer):
                 "which assumes the series has no trend. Pass trend=True."
             )
             raise ValueError(msg)
+
+
+def _require_regular(ts: TimeSeries) -> int:
+    """Return a series' sampling interval, refusing one that has none.
+
+    Both fitting and transforming count phases in whole sampling intervals from
+    a datum, so the same demand is made in each and is stated once here.
+
+    Parameters
+    ----------
+    ts
+        The series to check.
+
+    Returns
+    -------
+    int
+        The sampling interval in nanoseconds.
+
+    Raises
+    ------
+    ValueError
+        The sampling interval is irregular or unknown.
+    """
+    if ts.freq is None:
+        msg = (
+            "SeasonalDecomposition needs a regular time axis to line up "
+            "cycles; this series has an irregular or unknown sampling "
+            "interval. Resample it first."
+        )
+        raise ValueError(msg)
+    return int(ts.freq)
 
 
 def _centred_moving_average(

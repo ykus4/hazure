@@ -7,10 +7,9 @@ from typing import TYPE_CHECKING, Any, ClassVar, Final
 import numpy as np
 
 from hazure import BaseScorer
+from hazure._core.missing import fill_gaps
 
 if TYPE_CHECKING:
-    from numpy.typing import NDArray
-
     from hazure import TimeSeries
 
 __all__ = [
@@ -158,7 +157,7 @@ def _residual_score(ts: TimeSeries, model: str, options: dict[str, Any]) -> Time
         return ts.wrap(np.full(ts.n_rows, np.nan))
 
     decompose = _statsmodels_class(model)
-    dense = _fill_gaps(column, missing)
+    dense = fill_gaps(column, missing)
     residual = np.abs(np.asarray(decompose(dense, **options).fit().resid, dtype=float))
     residual[missing] = np.nan
     return ts.wrap(residual)
@@ -238,30 +237,3 @@ def _resolve_period(ts: TimeSeries, period: int | None, name: str) -> int:
         f"observations. Pass period=... explicitly."
     )
     raise ValueError(msg)
-
-
-def _fill_gaps(
-    column: NDArray[np.float64], missing: NDArray[np.bool_]
-) -> NDArray[np.float64]:
-    """Replace missing observations by linear interpolation between neighbours.
-
-    Parameters
-    ----------
-    column
-        1-D array, not entirely missing.
-    missing
-        Where ``column`` is NaN.
-
-    Returns
-    -------
-    numpy.ndarray
-        A copy with no missing values.
-    """
-    if not bool(missing.any()):
-        return column
-    positions = np.arange(column.shape[0], dtype=np.float64)
-    filled = column.copy()
-    filled[missing] = np.interp(
-        positions[missing], positions[~missing], column[~missing]
-    )
-    return filled

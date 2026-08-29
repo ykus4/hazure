@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, ClassVar
 import numpy as np
 
 from hazure import BaseTransformer
-from hazure._core.series import complete_rows
+from hazure._core.missing import complete_rows
 from hazure.features.ordinary_least_squares import OrdinaryLeastSquares
 
 if TYPE_CHECKING:

@@ -106,6 +106,23 @@ def test_a_score_is_drawn_on_its_own_panel_below_the_data(
     assert axes[0].get_ylim()[1] < 100.0
 
 
+def test_a_score_named_after_the_column_it_scored_is_still_the_score(
+    frame: pd.DataFrame,
+) -> None:
+    # A scorer names its output after the column it scored, so the score panel
+    # and the data panel routinely carry the same column name. The score panel
+    # must still draw the score.
+    score = pd.DataFrame(
+        {"a": np.arange(len(frame), dtype=float) * 1000.0}, index=frame.index
+    )
+
+    _, axes = plot(frame["a"], score=score)
+
+    assert len(axes) == 2
+    drawn = axes[1].get_lines()[0].get_ydata()
+    np.testing.assert_allclose(drawn, score["a"].to_numpy())
+
+
 def test_layout_controls_how_columns_share_panels(frame: pd.DataFrame) -> None:
     _, each = plot(frame)
     assert len(each) == 2

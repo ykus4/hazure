@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, ClassVar
 import numpy as np
 
 from hazure import BaseTransformer
-from hazure._core.series import complete_rows
+from hazure._core.missing import complete_rows
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -89,3 +89,8 @@ class _PcaBase(BaseTransformer):
         scores = np.full((ts.n_rows, self.components_.shape[0]), np.nan)
         scores[complete] = (ts.values[complete] - self.mean_) @ self.components_.T
         return scores, complete
+
+    def _reconstruct(self, scores: NDArray[np.float64]) -> NDArray[np.float64]:
+        """Return the points those component scores stand for, back in column space."""
+        rebuilt: NDArray[np.float64] = self.mean_ + scores @ self.components_
+        return rebuilt

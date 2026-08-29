@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hazure.detection.aggregation import _upper_iqr_threshold
 from hazure.detection.multivariate_signed_score import MultivariateSignedScoreDetector
 from hazure.scoring import (
     RegressionResidualScorer,
 )
-from hazure.thresholds import IqrThreshold
 
 if TYPE_CHECKING:
     from hazure.detection.side import Side
@@ -83,4 +83,4 @@ class RegressionDetector(MultivariateSignedScoreDetector):
         self.scorer = RegressionResidualScorer(
             target=self.target, regressor=self.regressor
         )
-        self.threshold = IqrThreshold(factor=(None, self.factor))
+        self.threshold = _upper_iqr_threshold(self.factor)

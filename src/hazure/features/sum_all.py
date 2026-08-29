@@ -37,10 +37,5 @@ class SumAll(BaseTransformer):
     multivariate: ClassVar[bool] = True
     trainable: ClassVar[bool] = False
 
-    def __init__(self) -> None:
-        # Declared explicitly, with no parameters, so that get_params() and
-        # clone() have a signature to read.
-        pass
-
     def _compute(self, ts: TimeSeries) -> TimeSeries:
         return ts.wrap(ts.values.sum(axis=1), ["sum"])

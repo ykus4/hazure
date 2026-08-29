@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, ClassVar, Literal
 import numpy as np
 
 from hazure import BaseAggregator
+from hazure._core.validate import check_choice
 from hazure.thresholds import MAD_SCALE
 
 if TYPE_CHECKING:
@@ -137,8 +138,8 @@ class ScoreAggregator(BaseAggregator):
     trainable: ClassVar[bool] = False
 
     def __init__(self, how: How = "mean", normalize: Normalize = "rank") -> None:
-        _check_choice(how, ("mean", "max", "median"), "how")
-        _check_choice(normalize, ("rank", "robust", "none"), "normalize")
+        check_choice(how, ("mean", "max", "median"), "how")
+        check_choice(normalize, ("rank", "robust", "none"), "normalize")
         self.how = how
         self.normalize = normalize
 
@@ -146,8 +147,8 @@ class ScoreAggregator(BaseAggregator):
         # Re-checked here as well as in __init__ because set_params() assigns
         # attributes directly, and a typo should fail loudly rather than fall
         # through to a silent default.
-        _check_choice(self.how, ("mean", "max", "median"), "how")
-        _check_choice(self.normalize, ("rank", "robust", "none"), "normalize")
+        check_choice(self.how, ("mean", "max", "median"), "how")
+        check_choice(self.normalize, ("rank", "robust", "none"), "normalize")
 
         scores = ts.values
         if self.normalize == "rank":
@@ -217,10 +218,3 @@ def _robust(column: NDArray[np.float64]) -> NDArray[np.float64]:
         # centred but unscaled, as StandardScale does with a constant series.
         scale = 1.0
     return (column - centre) / scale
-
-
-def _check_choice(value: object, allowed: tuple[str, ...], name: str) -> None:
-    """Reject a parameter that is not one of a small set of names."""
-    if value not in allowed:
-        msg = f"{name}={value!r} is not one of {list(allowed)}."
-        raise ValueError(msg)

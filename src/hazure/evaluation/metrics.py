@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 import numpy as np
 
 from hazure import TimeSeries
+from hazure._core.missing import as_flags
 from hazure.events import Events
 
 if TYPE_CHECKING:
@@ -204,6 +205,9 @@ def f1_score(
     >>> round(f1_score(truth, guess), 4)
     0.8571
     """
+    # recall and precision will check these again, but by then both are named
+    # thresh; checking here is what puts the caller's own argument name in the
+    # error message.
     _check_thresh(recall_thresh, "recall_thresh")
     _check_thresh(precision_thresh, "precision_thresh")
     recalled = recall(y_true, y_pred, recall_thresh)
@@ -299,7 +303,6 @@ def _dispatch(
     only names the second argument in error messages, since not every caller
     calls it ``y_pred``.
     """
-    aligner = _aligned if align is None else align
     true_kind = _kind(y_true)
     pred_kind = _kind(y_pred)
     if true_kind != pred_kind:
@@ -311,31 +314,20 @@ def _dispatch(
         raise TypeError(msg)
 
     if true_kind == "mapping":
-        _check_keys(set(y_true), set(y_pred), "key", guess_name)
-        scores: dict[str, _Result] = {}
-        for key in y_true:
-            score = _dispatch(
-                y_true[key],
-                y_pred[key],
-                on_points,
-                on_events,
-                align=align,
-                guess_name=guess_name,
-                **options,
-            )
-            if isinstance(score, dict):
-                msg = (
-                    f"Key {key!r} must hold a single anomaly type, but it "
-                    f"expanded into {sorted(score)}. Pass a one-column label "
-                    f"series, an Events, or a list of intervals."
-                )
-                raise TypeError(msg)
-            scores[key] = score
-        return scores
+        return _dispatch_mapping(
+            y_true,
+            y_pred,
+            on_points,
+            on_events,
+            align=align,
+            guess_name=guess_name,
+            **options,
+        )
 
     if true_kind == "events":
         return on_events(Events.from_any(y_true), Events.from_any(y_pred), **options)
 
+    aligner = _aligned if align is None else align
     truth = TimeSeries.from_any(y_true)
     guess = TimeSeries.from_any(y_pred)
     if truth.n_columns > 1 or guess.n_columns > 1:
@@ -345,6 +337,61 @@ def _dispatch(
             for name in truth.columns
         }
     return on_points(*aligner(truth, guess), **options)
+
+
+def _dispatch_mapping(
+    y_true: Any,
+    y_pred: Any,
+    on_points: Callable[..., _Result],
+    on_events: Callable[..., _Result],
+    *,
+    align: Callable[[TimeSeries, TimeSeries], tuple[Any, ...]] | None = None,
+    guess_name: str = "y_pred",
+    **options: Any,
+) -> dict[str, _Result]:
+    """Score a dict of anomaly types by sending each key back through dispatch.
+
+    Parameters
+    ----------
+    y_true, y_pred, on_points, on_events, align, guess_name, options
+        As passed to :func:`_dispatch`, which has already established that both
+        arguments are dicts.
+
+    Returns
+    -------
+    dict
+        One score per key, in the order ``y_true`` gives them.
+
+    Raises
+    ------
+    TypeError
+        A key holds something that scores as more than one number, such as a
+        wide label frame. The result would need nesting to express, and a dict
+        of dicts is not something a metric returns.
+    ValueError
+        The two dicts describe different sets of keys.
+    """
+    _check_keys(set(y_true), set(y_pred), "key", guess_name)
+    scores: dict[str, _Result] = {}
+    for key in y_true:
+        score = _dispatch(
+            y_true[key],
+            y_pred[key],
+            on_points,
+            on_events,
+            align=align,
+            guess_name=guess_name,
+            **options,
+        )
+        if isinstance(score, dict):
+            msg = (
+                f"Key {key!r} must hold a single anomaly type, but it "
+                f"expanded into {sorted(score)}. Pass a one-column label "
+                f"series, an Events, or a list of intervals."
+            )
+            raise TypeError(msg)
+        scores[key] = score
+    return scores
 
 
 def _kind(value: Any) -> str:
@@ -403,12 +450,32 @@ def _aligned(
 ) -> tuple[NDArray[np.bool_], NDArray[np.bool_]]:
     """Return the two label columns as booleans on one shared time axis."""
     left, right = _joined(truth, guess)
-    return _binary(left), _binary(right)
+    return as_flags(left), as_flags(right)
 
 
-def _binary(values: NDArray[np.float64]) -> NDArray[np.bool_]:
-    """Read a label column as booleans, treating NaN as not anomalous."""
-    return np.asarray(np.clip(np.nan_to_num(values, nan=0.0), 0.0, 1.0) == 1.0)
+def _owning_event(truth: Events, overlap: Events) -> NDArray[np.intp]:
+    """Say which true event each piece of an intersection belongs to.
+
+    Parameters
+    ----------
+    truth
+        The true events, sorted and disjoint as every ``Events`` is.
+    overlap
+        ``truth.intersect(...)``, so every piece lies inside exactly one true
+        event.
+
+    Returns
+    -------
+    numpy.ndarray
+        Index into ``truth`` for each piece of ``overlap``, in the order the
+        pieces come in. A piece can only belong to the last event that starts at
+        or before it — the events do not overlap each other, so no earlier one is
+        still open — which is what searchsorted-right minus one finds.
+    """
+    owner: NDArray[np.intp] = (
+        np.searchsorted(truth.bounds[:, 0], overlap.bounds[:, 0], side="right") - 1
+    )
+    return owner
 
 
 def _check_thresh(thresh: Any, name: str) -> None:
@@ -479,12 +546,7 @@ def _event_recall(truth: Events, guess: Events, *, thresh: float = 0.5) -> float
     covered: NDArray[np.float64] = np.zeros(total, dtype=np.float64)
     overlap = truth.intersect(guess)
     if overlap.n_events:
-        # Every piece of the intersection lies inside exactly one true event,
-        # because both sets are disjoint, so the owning event is the last one
-        # whose start is at or before the piece's.
-        owner = (
-            np.searchsorted(truth.bounds[:, 0], overlap.bounds[:, 0], side="right") - 1
-        )
+        owner = _owning_event(truth, overlap)
         covered = np.asarray(
             np.bincount(
                 owner,

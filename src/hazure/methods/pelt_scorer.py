@@ -149,11 +149,7 @@ class PeltScorer(_BreakpointScorer):
         # The check above leaves exactly two possibilities; naming them narrows the
         # adapter-facing `str` back to the pair the search understands.
         cost: Cost = "l1" if self.cost == "l1" else "l2"
-        self.penalty_ = (
-            _default_penalty(values, cost)
-            if self.penalty is None
-            else float(self.penalty)
-        )
+        self.penalty_ = _resolve_penalty(self.penalty, values, cost)
         return _pelt(values, cost, self.penalty_, self.min_size, self.jump)
 
 
@@ -208,12 +204,7 @@ def _pelt(
     next_start = 0
 
     for end in ends:
-        # A start becomes admissible once a segment of at least min_size can run
-        # from it to the current end.
-        while next_start <= end - min_size:
-            if next_start % jump == 0:
-                candidates.append(next_start)
-            next_start += 1
+        next_start = _admit_starts(candidates, next_start, end, min_size, jump)
         if not candidates:  # pragma: no cover - min_size <= n keeps 0 admissible
             continue
 
@@ -238,6 +229,42 @@ def _pelt(
             found.append(start)
         position = start
     return np.asarray(found[::-1], dtype=np.int64)
+
+
+def _admit_starts(
+    candidates: list[int], next_start: int, end: int, min_size: int, jump: int
+) -> int:
+    """Grow the window of admissible segment starts out to a new end.
+
+    A start becomes admissible once a segment of at least ``min_size`` can run
+    from it to the current end, and never stops being so — the pruning rule, not
+    this window, is what removes a candidate again. Walking the two positions
+    forward together is therefore enough: every start is considered exactly once
+    over the whole search, however many ends there are.
+
+    Parameters
+    ----------
+    candidates
+        Surviving starts, extended in place with the newly admissible ones.
+    next_start
+        First position not yet considered, from the previous end.
+    end
+        Segment end, exclusive, that admissibility is being judged against.
+    min_size
+        Shortest segment allowed.
+    jump
+        Grid spacing: only multiples of this are admitted as starts.
+
+    Returns
+    -------
+    int
+        The new first-not-yet-considered position, to hand back on the next call.
+    """
+    while next_start <= end - min_size:
+        if next_start % jump == 0:
+            candidates.append(next_start)
+        next_start += 1
+    return next_start
 
 
 def _prefixes(
@@ -357,6 +384,31 @@ def _default_penalty(values: NDArray[np.float64], cost: Cost) -> float:
     # after it — hence the factor of two on the per-parameter log(n).
     span = 2.0 * math.log(n)
     return sigma * sigma * span if cost == "l2" else sigma * span
+
+
+def _resolve_penalty(
+    penalty: float | None, values: NDArray[np.float64], cost: Cost
+) -> float:
+    """Settle on the penalty a search will charge per segment.
+
+    Parameters
+    ----------
+    penalty
+        The penalty asked for, or None to derive one from the data.
+    values
+        The series, consulted only when nothing was asked for.
+    cost
+        Which cost the derived penalty has to be commensurate with.
+
+    Returns
+    -------
+    float
+        The penalty to charge. A supplied value is taken as given, so a caller
+        who has calibrated one is never second-guessed by the data.
+    """
+    if penalty is None:
+        return _default_penalty(values, cost)
+    return float(penalty)
 
 
 # ---------------------------------------------------------------------------

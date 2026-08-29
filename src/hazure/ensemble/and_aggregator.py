@@ -39,11 +39,6 @@ class AndAggregator(BaseAggregator):
     [1.0, 0.0, 0.0, nan]
     """
 
-    def __init__(self) -> None:
-        # Declared explicitly, with no parameters, so that get_params() and
-        # clone() have a signature to read.
-        pass
-
     def _combine(self, ts: TimeSeries) -> TimeSeries:
         anomalous, unknown = _states(ts.values)
         normal = ~anomalous & ~unknown

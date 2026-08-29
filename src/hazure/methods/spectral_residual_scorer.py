@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, ClassVar, Final
 import numpy as np
 
 from hazure import BaseScorer, rolling
+from hazure._core.missing import fill_gaps
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -140,7 +141,7 @@ class SpectralResidualScorer(BaseScorer):
         if bool(missing.all()):
             return ts.wrap(np.full(ts.n_rows, np.nan))
 
-        filled = _fill_gaps(column, missing)
+        filled = fill_gaps(column, missing)
         extended = np.concatenate(
             [filled, _extrapolate(filled, self.series_window, _EXTENSION)]
         )
@@ -221,35 +222,6 @@ def _extrapolate(
     steps: NDArray[np.float64] = np.arange(1, count + 1, dtype=np.float64)
     extended: NDArray[np.float64] = values[-1] + gradient * steps
     return extended
-
-
-def _fill_gaps(
-    column: NDArray[np.float64], missing: NDArray[np.bool_]
-) -> NDArray[np.float64]:
-    """Replace missing observations by linear interpolation between neighbours.
-
-    Parameters
-    ----------
-    column
-        1-D array, not entirely missing.
-    missing
-        Where ``column`` is NaN.
-
-    Returns
-    -------
-    numpy.ndarray
-        A copy with no missing values. Gaps at either end are held flat at the
-        nearest observation, which is what ``numpy.interp`` does outside its
-        range.
-    """
-    if not bool(missing.any()):
-        return column
-    positions = np.arange(column.shape[0], dtype=np.float64)
-    filled = column.copy()
-    filled[missing] = np.interp(
-        positions[missing], positions[~missing], column[~missing]
-    )
-    return filled
 
 
 def _check_windows(window: int, series_window: int, score_window: int) -> None:

@@ -33,11 +33,6 @@ class StandardScale(BaseTransformer):
 
     trainable: ClassVar[bool] = False
 
-    def __init__(self) -> None:
-        # Declared explicitly, with no parameters, so that get_params() and
-        # clone() have a signature to read.
-        pass
-
     def _compute(self, ts: TimeSeries) -> TimeSeries:
         values = ts.values[:, 0]
         present = values[~np.isnan(values)]

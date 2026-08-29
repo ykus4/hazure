@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 
 from hazure import BaseScorer
+from hazure._core.validate import check_choice
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -92,14 +93,14 @@ class DeviationScorer(BaseScorer):
     scale_: float
 
     def __init__(self, center: Centre = "median", scale: Scale = "iqr") -> None:
-        _check_choice(center, ("median", "mean"), "center")
-        _check_choice(scale, ("iqr", "idr", "mad", "std"), "scale")
+        check_choice(center, ("median", "mean"), "center")
+        check_choice(scale, ("iqr", "idr", "mad", "std"), "scale")
         self.center = center
         self.scale = scale
 
     def _learn(self, ts: TimeSeries) -> None:
-        _check_choice(self.center, ("median", "mean"), "center")
-        _check_choice(self.scale, ("iqr", "idr", "mad", "std"), "scale")
+        check_choice(self.center, ("median", "mean"), "center")
+        check_choice(self.scale, ("iqr", "idr", "mad", "std"), "scale")
 
         column = ts.values[:, 0]
         observed = column[~np.isnan(column)]
@@ -136,10 +137,3 @@ def _spread(observed: NDArray[np.float64], scale: Scale, centre: float) -> float
     edges = (0.25, 0.75) if scale == "iqr" else (0.1, 0.9)
     low, high = np.quantile(observed, edges)
     return float(high - low)
-
-
-def _check_choice(value: object, allowed: tuple[str, ...], name: str) -> None:
-    """Reject a parameter that is not one of a small set of names."""
-    if value not in allowed:
-        msg = f"{name}={value!r} is not one of {list(allowed)}."
-        raise ValueError(msg)

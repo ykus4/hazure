@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from hazure.evaluation.metrics import _binary, _dispatch, _joined
+from hazure._core.missing import as_flags
+from hazure.evaluation.metrics import _dispatch, _joined
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -219,7 +220,7 @@ def _scored(
     unrankable rows is the kernel's job.
     """
     labels, values = _joined(truth, scores)
-    return _binary(labels), values
+    return as_flags(labels), values
 
 
 def _no_events(truth: Events, scores: Events) -> float:

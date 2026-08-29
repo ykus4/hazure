@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Final, Literal, get_args
 
+from hazure._core.validate import check_choice
+
 __all__ = [
     "Side",
 ]
@@ -29,6 +31,4 @@ def check_side(side: object) -> None:
     ValueError
         ``side`` is not ``"both"``, ``"positive"`` or ``"negative"``.
     """
-    if side not in _SIDES:
-        msg = f"side={side!r} is not one of {list(_SIDES)}."
-        raise ValueError(msg)
+    check_choice(side, _SIDES, "side")

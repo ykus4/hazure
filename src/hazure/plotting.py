@@ -158,11 +158,42 @@ def plot(
     ... )
     >>> fig.savefig("anomalies.png")                           # doctest: +SKIP
     """
-    # Imported here, not at module scope, so that `import hazure` stays free of
-    # matplotlib. Routed through importlib rather than an `import` statement so
-    # that type-checking hazure does not require the viz extra to be installed.
+    plt = _pyplot()
+    _check_arguments(series, score, anomaly, style=style, alpha=alpha)
+
+    data = None if series is None else TimeSeries.from_any(series)
+    scores = None if score is None else TimeSeries.from_any(score)
+    marks = _as_event_sets(anomaly)
+
+    panels = _resolve_panels(data, scores, layout)
+    # With neither data nor scores there is still an event timeline to show, so
+    # keep one panel for it rather than returning an empty figure.
+    fig, panel_axes, created = _resolve_axes(
+        plt, axes, max(len(panels), 1), figsize=figsize
+    )
+
+    # Offset the anomaly colours past the widest panel so shading never lands on
+    # the same colour as a line beneath it.
+    widest = max((len(group) for _, group in panels), default=1)
+    colours = _resolve_colours(
+        list(marks), palette, _cycle_colours(plt.rcParams), offset=widest
+    )
+
+    _draw_panels(panel_axes, panels, marks, colours, style=style, alpha=alpha)
+    _finish(fig, panel_axes, data, title=title, legend=legend, rotate_ticks=created)
+    return fig, panel_axes
+
+
+def _pyplot() -> Any:
+    """Import ``matplotlib.pyplot``, or explain how to get it.
+
+    Imported here, not at module scope, so that ``import hazure`` stays free of
+    matplotlib. Routed through :mod:`importlib` rather than an ``import``
+    statement so that type-checking hazure does not require the viz extra to be
+    installed.
+    """
     try:
-        plt = importlib.import_module("matplotlib.pyplot")
+        return importlib.import_module("matplotlib.pyplot")
     except ImportError as exc:  # pragma: no cover - exercised by the extras job
         msg = (
             "hazure.plotting.plot needs matplotlib, which is an optional extra. "
@@ -170,6 +201,11 @@ def plot(
         )
         raise ImportError(msg) from exc
 
+
+def _check_arguments(
+    series: Any, score: Any, anomaly: Any, *, style: str, alpha: float
+) -> None:
+    """Reject what cannot be drawn, before any of it is converted."""
     if style not in _STYLES:
         msg = f"style={style!r} must be one of {list(_STYLES)}."
         raise ValueError(msg)
@@ -180,12 +216,39 @@ def plot(
         msg = "plot() needs at least one of series=, anomaly= or score= to draw."
         raise ValueError(msg)
 
-    data = None if series is None else TimeSeries.from_any(series)
-    scores = None if score is None else TimeSeries.from_any(score)
-    marks = _as_event_sets(anomaly)
 
+def _resolve_panels(
+    data: TimeSeries | None,
+    scores: TimeSeries | None,
+    layout: str | Sequence[str | Sequence[str]],
+) -> list[tuple[TimeSeries, tuple[str, ...]]]:
+    """Work out what each panel draws, top to bottom.
+
+    Each panel is paired with the series it comes from rather than looked up by
+    its columns later: a scorer names its output after the column it scored, so
+    a data panel and a score panel routinely carry the same column names and
+    could not be told apart by name alone.
+
+    Parameters
+    ----------
+    data, scores
+        The series and the scores, either of which may be absent.
+    layout
+        As given to :func:`plot`.
+
+    Returns
+    -------
+    list of tuple
+        ``(source, columns)`` per panel, data panels first.
+
+    Raises
+    ------
+    ValueError
+        ``layout`` names columns but no series was passed, or names a column
+        that does not exist.
+    """
+    panels: list[tuple[TimeSeries, tuple[str, ...]]] = []
     if data is None:
-        data_groups: list[tuple[str, ...]] = []
         if not isinstance(layout, str):
             msg = (
                 f"layout={list(layout)!r} names series columns, but no series "
@@ -193,21 +256,38 @@ def plot(
             )
             raise ValueError(msg)
     else:
-        data_groups = _resolve_groups(data.columns, layout)
+        panels += [(data, group) for group in _resolve_groups(data.columns, layout)]
 
-    # Scores only get one panel each when the data does; any coarser layout is a
-    # request for fewer panels, and the scores should honour that too.
-    score_groups = (
-        _resolve_groups(scores.columns, "each" if layout == "each" else "all")
-        if scores is not None
-        else []
-    )
+    if scores is not None:
+        # Scores only get one panel each when the data does; any coarser layout
+        # is a request for fewer panels, and the scores should honour that too.
+        score_layout = "each" if layout == "each" else "all"
+        panels += [
+            (scores, group) for group in _resolve_groups(scores.columns, score_layout)
+        ]
+    return panels
 
-    # With neither data nor scores there is still an event timeline to show, so
-    # keep one panel for it rather than returning an empty figure.
-    panels = [*data_groups, *score_groups]
-    n_panels = max(len(panels), 1)
 
+def _resolve_axes(
+    plt: Any,
+    axes: Sequence[Axes] | None,
+    n_panels: int,
+    *,
+    figsize: tuple[float, float] | None,
+) -> tuple[Figure, list[Axes], bool]:
+    """Return the axes to draw on, making a figure only if none was supplied.
+
+    Returns
+    -------
+    tuple
+        ``(figure, axes, created)``, where ``created`` records whether the
+        figure is ours to make free with.
+
+    Raises
+    ------
+    ValueError
+        Fewer axes were supplied than this layout needs.
+    """
     if axes is None:
         fig, grid = plt.subplots(
             n_panels,
@@ -216,55 +296,67 @@ def plot(
             squeeze=False,
             figsize=figsize or (_PANEL_WIDTH, _PANEL_HEIGHT * n_panels),
         )
-        panel_axes: list[Any] = list(grid[:, 0])
-        created = True
-    else:
-        supplied = list(axes)
-        if len(supplied) < n_panels:
-            msg = (
-                f"plot() needs {n_panels} axes for this layout but was given "
-                f"{len(supplied)}."
-            )
-            raise ValueError(msg)
-        panel_axes = supplied[:n_panels]
-        fig = panel_axes[0].get_figure()
-        created = False
+        return fig, list(grid[:, 0]), True
 
-    # Offset the anomaly colours past the widest panel so shading never lands on
-    # the same colour as a line beneath it.
-    widest = max((len(group) for group in panels), default=1)
-    colours = _resolve_colours(
-        list(marks), palette, _cycle_colours(plt.rcParams), offset=widest
-    )
+    supplied = list(axes)
+    if len(supplied) < n_panels:
+        msg = (
+            f"plot() needs {n_panels} axes for this layout but was given "
+            f"{len(supplied)}."
+        )
+        raise ValueError(msg)
+    panel_axes = supplied[:n_panels]
+    return panel_axes[0].get_figure(), panel_axes, False
 
-    for ax, group in zip(panel_axes, panels, strict=False):
-        source = data if group in data_groups and data is not None else scores
-        assert source is not None  # a group only exists for a series that exists
+
+def _draw_panels(
+    panel_axes: list[Axes],
+    panels: list[tuple[TimeSeries, tuple[str, ...]]],
+    marks: dict[str, Events],
+    colours: list[Any],
+    *,
+    style: str,
+    alpha: float,
+) -> None:
+    """Draw every panel's lines and mark its anomalies."""
+    if not panels:
+        # Only anomalies were passed, so there is a timeline and nothing on it.
+        _overlay(panel_axes[0], None, (), marks, colours, style=style, alpha=alpha)
+        return
+
+    for ax, (source, group) in zip(panel_axes, panels, strict=False):
         _draw_lines(ax, source, group)
         _overlay(ax, source, group, marks, colours, style=style, alpha=alpha)
         ax.set_ylabel(group[0] if len(group) == 1 else ", ".join(group))
-    if not panels:
-        _overlay(panel_axes[0], None, (), marks, colours, style=style, alpha=alpha)
 
+
+def _finish(
+    fig: Figure,
+    panel_axes: list[Axes],
+    data: TimeSeries | None,
+    *,
+    title: str | None,
+    legend: bool,
+    rotate_ticks: bool,
+) -> None:
+    """Add the legend, the axis label and the title, once everything is drawn."""
     if legend:
-        for ax in panel_axes[:n_panels]:
+        for ax in panel_axes:
             handles, labels = ax.get_legend_handles_labels()
             if handles:
                 ax.legend(handles, labels, loc="upper left", fontsize="small")
 
-    axis_name = data.origin.time_name if data is not None else "time"
-    panel_axes[n_panels - 1].set_xlabel(axis_name)
+    panel_axes[-1].set_xlabel(data.origin.time_name if data is not None else "time")
     if title is not None:
-        if n_panels == 1:
+        # One panel has somewhere to put a title; several share a figure-level one.
+        if len(panel_axes) == 1:
             panel_axes[0].set_title(title)
         else:
             fig.suptitle(title)
-    if created:
+    if rotate_ticks:
         # Date ticks overlap at default sizes; rotating them touches this figure
         # only, unlike an rcParams change.
         fig.autofmt_xdate()
-
-    return fig, panel_axes
 
 
 # ---------------------------------------------------------------------------

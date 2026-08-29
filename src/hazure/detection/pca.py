@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hazure.detection.aggregation import _upper_iqr_threshold
 from hazure.detection.multivariate_score import MultivariateScoreDetector
 from hazure.scoring import (
     PcaReconstructionErrorScorer,
 )
-from hazure.thresholds import IqrThreshold
 
 if TYPE_CHECKING:
     from hazure.thresholds.fence import Factor
@@ -73,4 +73,4 @@ class PcaDetector(MultivariateScoreDetector):
 
     def _build(self) -> None:
         self.scorer = PcaReconstructionErrorScorer(k=self.k)
-        self.threshold = IqrThreshold(factor=(None, self.factor))
+        self.threshold = _upper_iqr_threshold(self.factor)
