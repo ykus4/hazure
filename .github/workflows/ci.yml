@@ -104,10 +104,8 @@ jobs:
           import sys
           import numpy as np
           import hazure
-          from hazure import (
-              Graph, HampelDetector, LevelShiftDetector, Node, OrAggregator,
-              PeltDetector, SpectralResidualDetector, SpikeDetector, TimeSeries,
-          )
+          from hazure import Graph, Node, TimeSeries, detectors
+          from hazure.ensemble import OrAggregator
 
           forbidden = {'pandas', 'polars', 'pyarrow', 'scipy', 'sklearn',
                        'matplotlib', 'statsmodels', 'stumpy', 'ruptures', 'numba'}
@@ -121,18 +119,18 @@ jobs:
           series = TimeSeries.from_arrays(time, values)
 
           for detector in (
-              SpikeDetector(window=24),
-              LevelShiftDetector(window=12),
-              HampelDetector(window=25),
-              PeltDetector(),
-              SpectralResidualDetector(),
+              detectors.spike(window=24),
+              detectors.level_shift(window=12),
+              detectors.hampel(window=25),
+              detectors.pelt(),
+              detectors.spectral_residual(),
           ):
               result = detector.fit_detect(series)
-              assert result.n_rows == 400, type(detector).__name__
+              assert result.n_rows == 400, repr(detector)
 
           graph = Graph([
-              Node('spike', SpikeDetector(window=24)),
-              Node('shift', LevelShiftDetector(window=12)),
+              Node('spike', detectors.spike(window=24)),
+              Node('shift', detectors.level_shift(window=12)),
               Node('either', OrAggregator(), inputs=('spike', 'shift')),
           ])
           assert graph.fit_detect(series).n_rows == 400
