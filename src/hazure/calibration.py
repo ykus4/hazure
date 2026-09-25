@@ -25,7 +25,7 @@ about, and so is one chosen off a spike.
 Hyperparameters other than the cut-off need no machinery from here: components
 follow the scikit-learn parameter conventions closely enough for
 ``sklearn.model_selection.GridSearchCV`` to drive them directly, and
-:func:`~hazure.split_train_test` supplies folds that respect time order.
+:func:`~hazure.evaluation.split_train_test` supplies folds that respect time order.
 """
 
 from __future__ import annotations
@@ -110,7 +110,7 @@ class Calibration:
         FixedThreshold
             A one-sided fence at :attr:`cut_off`. Pair it with the scorer the
             calibration was computed from, through
-            :class:`~hazure.ScoreDetector`.
+            :class:`~hazure.Detector`.
         """
         return FixedThreshold(high=self.cut_off)
 
@@ -135,11 +135,11 @@ def tune_threshold(
     Parameters
     ----------
     y_true
-        Ground truth: a label series, an :class:`~hazure.Events`, a list of
+        Ground truth: a label series, an :class:`~hazure.events.Events`, a list of
         intervals, or a dict of those keyed by score column. A single ground
         truth given against several score columns is used for all of them.
     scores
-        Continuous scores from any :class:`~hazure.BaseScorer`, on the same time
+        Continuous scores from any :class:`~hazure.Scorer`, on the same time
         axis as ``y_true``. Higher means more anomalous.
     metric
         What to maximise: ``"f1"``, ``"iou"``, ``"precision"``, ``"recall"``, or
@@ -193,14 +193,14 @@ def tune_threshold(
     None of the four metrics counts alerts, and event-based precision in particular
     does not punish a fragmented one: two alerts inside the same true event are two
     justified alerts. So a cut-off with a perfect F1 can still page twice for one
-    incident. Check :func:`~hazure.to_events` on the result, or debounce with
-    :func:`~hazure.expand_events`, or calibrate with :func:`budget_threshold`
+    incident. Check :func:`~hazure.events.to_events` on the result, or debounce with
+    :func:`~hazure.events.expand_events`, or calibrate with :func:`budget_threshold`
     instead, which counts alerts by construction.
 
     The cut-off this finds is fitted to ``y_true``, and quoting the same metric at
     the same cut-off on the same data would be reporting a training score. Tune on
-    one fold and measure on the next; :func:`~hazure.split_train_test` exists for
-    that.
+    one fold and measure on the next;
+    :func:`~hazure.evaluation.split_train_test` exists for that.
 
     Examples
     --------
@@ -209,7 +209,7 @@ def tune_threshold(
 
     >>> import numpy as np
     >>> import pandas as pd
-    >>> from hazure import DeviationScorer
+    >>> from hazure.scorers import DeviationScorer
     >>> index = pd.date_range("2024-01-01", periods=480, freq="h", name="time")
     >>> rng = np.random.default_rng(0)
     >>> values = pd.Series(rng.normal(0, 1, 480), index=index, name="x")
@@ -232,7 +232,7 @@ def tune_threshold(
     3
 
     That is worth knowing before trusting the number. Read the alert count next to
-    it, or debounce with :func:`~hazure.expand_events` first.
+    it, or debounce with :func:`~hazure.events.expand_events` first.
     """
     _check_candidates(candidates)
     measure = _resolve_metric(metric)
@@ -262,7 +262,7 @@ def budget_threshold(
     Parameters
     ----------
     scores
-        Continuous scores from any :class:`~hazure.BaseScorer`, over a stretch of
+        Continuous scores from any :class:`~hazure.Scorer`, over a stretch of
         history long enough to contain several budget periods. Higher means more
         anomalous.
     alerts
@@ -297,7 +297,7 @@ def budget_threshold(
     See Also
     --------
     tune_threshold : The same question when there is labelled history to aim at.
-    hazure.expand_events : What ``gap`` is doing, available on its own.
+    hazure.events.expand_events : What ``gap`` is doing, available on its own.
 
     Notes
     -----
@@ -326,7 +326,7 @@ def budget_threshold(
 
     >>> import numpy as np
     >>> import pandas as pd
-    >>> from hazure import DeviationScorer
+    >>> from hazure.scorers import DeviationScorer
     >>> index = pd.date_range("2024-01-01", periods=24 * 21, freq="h", name="time")
     >>> rng = np.random.default_rng(0)
     >>> values = pd.Series(rng.normal(0, 1, len(index)), index=index, name="rps")

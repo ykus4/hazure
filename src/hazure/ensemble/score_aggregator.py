@@ -12,14 +12,14 @@ from typing import TYPE_CHECKING, ClassVar, Literal
 
 import numpy as np
 
-from hazure import BaseAggregator
+from hazure._core import Aggregator
+from hazure._core.stats import MAD_SCALE
 from hazure._core.validate import check_choice
-from hazure.thresholds import MAD_SCALE
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-    from hazure import TimeSeries
+    from hazure._core import OutputKind, TimeSeries
 
 __all__ = [
     "ScoreAggregator",
@@ -34,7 +34,7 @@ How = Literal["mean", "max", "median"]
 Normalize = Literal["rank", "robust", "none"]
 
 
-class ScoreAggregator(BaseAggregator):
+class ScoreAggregator(Aggregator):
     """Combine several anomaly scores into one score.
 
     The label aggregators reconcile verdicts, which means each input has already
@@ -87,13 +87,15 @@ class ScoreAggregator(BaseAggregator):
 
     Notes
     -----
-    Nothing is learned, so :attr:`trainable` is False and there is no ``fit``.
+    Nothing is learned, so there is no ``fit``. The output is a score, not a
+    label, so a :class:`~hazure.Graph` ending here answers to ``score()``.
     The normalisation is recomputed from the very series being combined, as
-    :class:`hazure.StandardScale` does, rather than fitted on a training period.
+    :class:`hazure.transformers.StandardScale` does, rather than fitted on a
+    training period.
     For ``"rank"`` that is not a shortcut but the definition: a rank exists only
     relative to a sample, and there is no sample here but the one in hand.
     ``"robust"`` could honestly be fitted, and if a fixed yardstick is what you
-    want, put a :class:`hazure.DeviationScorer` in front of each input and
+    want, put a :class:`hazure.scorers.DeviationScorer` in front of each input and
     combine with ``normalize="none"``.
 
     ``NaN`` means unknown and abstains rather than propagating, exactly as it
@@ -105,10 +107,10 @@ class ScoreAggregator(BaseAggregator):
     A column whose median absolute deviation is zero has no observed spread to
     divide by — a mostly constant score with a few excursions is enough to do
     that. Under ``"robust"`` such a column is centred and left unscaled, which
-    is what :class:`hazure.StandardScale` does with a constant series: values on
-    the median contribute exactly 0.0, and the excursions stay finite and
-    ordered instead of becoming an infinity that would swallow every other
-    input's contribution to a mean.
+    is what :class:`hazure.transformers.StandardScale` does with a constant
+    series: values on the median contribute exactly 0.0, and the excursions stay
+    finite and ordered instead of becoming an infinity that would swallow every
+    other input's contribution to a mean.
 
     Examples
     --------
@@ -135,7 +137,8 @@ class ScoreAggregator(BaseAggregator):
     [1.0, 0.333, 1.0, 0.667]
     """
 
-    trainable: ClassVar[bool] = False
+    #: The combination is still a score, not a verdict: it wants a threshold.
+    _output: ClassVar[OutputKind] = "score"
 
     def __init__(self, how: How = "mean", normalize: Normalize = "rank") -> None:
         check_choice(how, ("mean", "max", "median"), "how")
@@ -143,7 +146,7 @@ class ScoreAggregator(BaseAggregator):
         self.how = how
         self.normalize = normalize
 
-    def _combine(self, ts: TimeSeries) -> TimeSeries:
+    def _compute(self, ts: TimeSeries) -> TimeSeries:
         # Re-checked here as well as in __init__ because set_params() assigns
         # attributes directly, and a typo should fail loudly rather than fall
         # through to a silent default.

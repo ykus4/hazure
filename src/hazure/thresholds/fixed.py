@@ -5,11 +5,11 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, ClassVar
 
-from hazure import BaseThreshold
+from hazure._core import Threshold
 from hazure.thresholds.fence import _label, _require_a_bound
 
 if TYPE_CHECKING:
-    from hazure import TimeSeries
+    from hazure._core import TimeSeries
 
 
 __all__ = [
@@ -22,7 +22,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
-class FixedThreshold(BaseThreshold):
+class FixedThreshold(Threshold):
     """Flag scores outside a range the caller supplies.
 
     Nothing is learned, so this is usable without :meth:`fit`. It is the right

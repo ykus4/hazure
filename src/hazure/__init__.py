@@ -5,13 +5,25 @@ misbehaves, and you have no record of when it did. There is nothing to train a
 classifier on, so the model has to describe what normal looks like and report
 departures from it.
 
-Everything is built from five composable pieces::
+Most of the time that is one call::
 
-    Scorer      series -> continuous score     .score()      .fit_score()
-    Threshold   score  -> binary labels        .apply()      .fit_apply()
-    Detector    a Scorer and Threshold paired  .detect()     .fit_detect()
-    Aggregator  several label series -> one    .aggregate()
-    Transformer series -> series               .transform()  .fit_transform()
+    >>> import numpy as np, pandas as pd
+    >>> from hazure import detectors
+    >>> index = pd.date_range("2024-01-01", periods=200, freq="h")
+    >>> values = np.zeros(200)
+    >>> values[120] = 9.0
+    >>> flags = detectors.spike(window=24).fit_detect(pd.Series(values, index=index))
+    >>> bool(flags.idxmax() == index[120])
+    True
+
+and what :mod:`hazure.detectors` hands back is always a :class:`Detector`: a
+scorer and a threshold, held together.
+
+    Scorer       series -> continuous score     .score()      .fit_score()
+    Threshold    score  -> binary labels        .apply()      .fit_apply()
+    Detector     a Scorer and a Threshold       .detect()     .fit_detect()
+    Transformer  series -> series               .transform()  .fit_transform()
+    Aggregator   several columns -> one         .aggregate()
 
 Asking "how unusual is this point" and asking "is that unusual enough to report"
 are different questions, so they are separate types. One threshold policy is then
@@ -19,51 +31,32 @@ reusable across every scorer, a scorer can be swapped without revisiting the
 policy, and a score is useful on its own for ranking rather than flagging.
 
 Any pandas, polars or pyarrow object with a time axis is accepted, and results
-come back in the flavour they went in as::
-
-    >>> import numpy as np, pandas as pd
-    >>> from hazure import SpikeDetector
-    >>> index = pd.date_range("2024-01-01", periods=200, freq="h")
-    >>> values = np.zeros(200)
-    >>> values[120] = 9.0
-    >>> flags = SpikeDetector(window=24).fit_detect(pd.Series(values, index=index))
-    >>> bool(flags.idxmax() == index[120])
-    True
-
-Labels are ``1.0`` anomalous, ``0.0`` normal and ``NaN`` unknown — a point whose
-score could not be computed is not quietly called normal.
+come back in the flavour they went in as. Labels are ``1.0`` anomalous, ``0.0``
+normal and ``NaN`` unknown — a point whose score could not be computed is not
+quietly called normal.
 
 Runtime dependencies are ``narwhals`` and ``numpy``. SciPy, scikit-learn,
 statsmodels, matplotlib, stumpy and ruptures are extras, imported only by the
 components that need them.
 
-Every public name is importable straight from this package, apart from the sample
-data in :mod:`hazure.datasets` — a convenience for trying things out rather than
-part of the detection API. Names are also grouped by subject, if you prefer to
-import from there:
+This namespace holds the types and the structures that combine them. Everything
+else lives in a module named for what it holds:
 
-``hazure.detection``
-    Ready-made detectors, each a scorer paired with a threshold.
-``hazure.scoring``
-    Continuous scores, for ranking or for pairing with your own threshold.
+``hazure.detectors``
+    Ready-made detectors, one function per kind of anomaly.
+``hazure.scorers``
+    Continuous scores, for ranking or for pairing with a threshold.
 ``hazure.thresholds``
     Turning a score into labels.
-``hazure.features``
+``hazure.transformers``
     Feature engineering: rolling aggregates, lags, decomposition, projections.
 ``hazure.ensemble``
-    Combining several verdicts into one.
-``hazure.compose``
-    :class:`Pipeline` for a chain, :class:`Graph` for anything branching.
+    Combining several verdicts, or several scores, into one.
 ``hazure.events``
     Moving between per-sample labels and anomalous intervals.
 ``hazure.evaluation``
     Metrics — how much was caught, how late, how well ranked — and time-ordered
     folds to compute them over.
-``hazure.methods``
-    Further method families: spectral residual, Hampel filtering, change-point
-    segmentation, matrix profile discords, STL residuals.
-``hazure.streaming``
-    :class:`Stream`, for driving a fitted component one observation at a time.
 ``hazure.calibration``
     Choosing where to draw the line: from labelled events, or from an alert
     budget.
@@ -75,229 +68,49 @@ import from there:
 
 from __future__ import annotations
 
+from hazure import (
+    calibration,
+    detectors,
+    ensemble,
+    evaluation,
+    events,
+    scorers,
+    thresholds,
+    transformers,
+)
 from hazure._core import (
-    AGGREGATIONS,
-    BaseAggregator,
-    BaseDetector,
-    BaseScorer,
-    BaseThreshold,
-    BaseTransformer,
+    Aggregator,
     Component,
+    Detector,
+    Scorer,
+    Threshold,
     TimeSeries,
-    double_rolling,
-    parse_duration,
-    rolling,
+    Transformer,
 )
-from hazure.calibration import Calibration, budget_threshold, tune_threshold
 from hazure.compose import Graph, Node, Pipeline
-from hazure.detection import (
-    AutoregressionDetector,
-    EsdDetector,
-    IqrDetector,
-    LevelShiftDetector,
-    MinClusterDetector,
-    MultivariateScoreDetector,
-    MultivariateSignedScoreDetector,
-    OutlierDetector,
-    PcaDetector,
-    QuantileDetector,
-    RegressionDetector,
-    ScoreDetector,
-    SeasonalDetector,
-    Side,
-    SignedScoreDetector,
-    SpikeDetector,
-    ThresholdDetector,
-    VolatilityShiftDetector,
-)
-from hazure.ensemble import (
-    AndAggregator,
-    CustomizedAggregator,
-    OrAggregator,
-    ScoreAggregator,
-    VoteAggregator,
-)
-from hazure.evaluation import (
-    average_precision,
-    detection_delay,
-    detection_delays,
-    f1_score,
-    iou,
-    precision,
-    recall,
-    roc_auc,
-    split_train_test,
-)
-from hazure.events import Events, expand_events, to_events, to_labels, validate_series
-from hazure.features import (
-    CustomizedTransformer,
-    DoubleRollingAggregate,
-    OrdinaryLeastSquares,
-    PcaColumnError,
-    PcaProjection,
-    PcaReconstruction,
-    PcaReconstructionError,
-    RegressionResidual,
-    Regressor,
-    Retrospect,
-    RollingAggregate,
-    SeasonalDecomposition,
-    StandardScale,
-    SumAll,
-)
-from hazure.methods import (
-    Cost,
-    DampDetector,
-    DampScorer,
-    HampelDetector,
-    HampelScorer,
-    MatrixProfileDetector,
-    MatrixProfileScorer,
-    MstlDetector,
-    MstlResidualScorer,
-    PeltDetector,
-    PeltScorer,
-    RollingQuantileDetector,
-    RollingQuantileScorer,
-    RupturesDetector,
-    RupturesScorer,
-    SpectralResidualDetector,
-    SpectralResidualScorer,
-    StlDetector,
-    StlResidualScorer,
-)
-from hazure.scoring import (
-    AutoregressionResidualScorer,
-    DeviationScorer,
-    DoubleRollingScorer,
-    MinClusterScorer,
-    OutlierScorer,
-    PcaReconstructionErrorScorer,
-    RegressionResidualScorer,
-    RollingAggregateScorer,
-    SeasonalResidualScorer,
-)
 from hazure.streaming import Stream
-from hazure.thresholds import (
-    MAD_SCALE,
-    EsdThreshold,
-    Factor,
-    FactorSpec,
-    FixedThreshold,
-    IqrThreshold,
-    MadThreshold,
-    PotThreshold,
-    QuantileThreshold,
-)
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
-    "AGGREGATIONS",
-    "MAD_SCALE",
-    "AndAggregator",
-    "AutoregressionDetector",
-    "AutoregressionResidualScorer",
-    "BaseAggregator",
-    "BaseDetector",
-    "BaseScorer",
-    "BaseThreshold",
-    "BaseTransformer",
-    "Calibration",
+    "Aggregator",
     "Component",
-    "Cost",
-    "CustomizedAggregator",
-    "CustomizedTransformer",
-    "DampDetector",
-    "DampScorer",
-    "DeviationScorer",
-    "DoubleRollingAggregate",
-    "DoubleRollingScorer",
-    "EsdDetector",
-    "EsdThreshold",
-    "Events",
-    "Factor",
-    "FactorSpec",
-    "FixedThreshold",
+    "Detector",
     "Graph",
-    "HampelDetector",
-    "HampelScorer",
-    "IqrDetector",
-    "IqrThreshold",
-    "LevelShiftDetector",
-    "MadThreshold",
-    "MatrixProfileDetector",
-    "MatrixProfileScorer",
-    "MinClusterDetector",
-    "MinClusterScorer",
-    "MstlDetector",
-    "MstlResidualScorer",
-    "MultivariateScoreDetector",
-    "MultivariateSignedScoreDetector",
     "Node",
-    "OrAggregator",
-    "OrdinaryLeastSquares",
-    "OutlierDetector",
-    "OutlierScorer",
-    "PcaColumnError",
-    "PcaDetector",
-    "PcaProjection",
-    "PcaReconstruction",
-    "PcaReconstructionError",
-    "PcaReconstructionErrorScorer",
-    "PeltDetector",
-    "PeltScorer",
     "Pipeline",
-    "PotThreshold",
-    "QuantileDetector",
-    "QuantileThreshold",
-    "RegressionDetector",
-    "RegressionResidual",
-    "RegressionResidualScorer",
-    "Regressor",
-    "Retrospect",
-    "RollingAggregate",
-    "RollingAggregateScorer",
-    "RollingQuantileDetector",
-    "RollingQuantileScorer",
-    "RupturesDetector",
-    "RupturesScorer",
-    "ScoreAggregator",
-    "ScoreDetector",
-    "SeasonalDecomposition",
-    "SeasonalDetector",
-    "SeasonalResidualScorer",
-    "Side",
-    "SignedScoreDetector",
-    "SpectralResidualDetector",
-    "SpectralResidualScorer",
-    "SpikeDetector",
-    "StandardScale",
-    "StlDetector",
-    "StlResidualScorer",
+    "Scorer",
     "Stream",
-    "SumAll",
-    "ThresholdDetector",
+    "Threshold",
     "TimeSeries",
-    "VolatilityShiftDetector",
-    "VoteAggregator",
+    "Transformer",
     "__version__",
-    "average_precision",
-    "budget_threshold",
-    "detection_delay",
-    "detection_delays",
-    "double_rolling",
-    "expand_events",
-    "f1_score",
-    "iou",
-    "parse_duration",
-    "precision",
-    "recall",
-    "roc_auc",
-    "rolling",
-    "split_train_test",
-    "to_events",
-    "to_labels",
-    "tune_threshold",
-    "validate_series",
+    "calibration",
+    "detectors",
+    "ensemble",
+    "evaluation",
+    "events",
+    "scorers",
+    "thresholds",
+    "transformers",
 ]

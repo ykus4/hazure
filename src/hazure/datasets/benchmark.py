@@ -16,7 +16,7 @@ from hazure.events import to_events
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from hazure import BaseDetector
+    from hazure._core import Detector
     from hazure.datasets.dataset import Dataset
 
 
@@ -26,7 +26,7 @@ __all__ = [
 
 
 def compare(
-    detectors: Mapping[str, BaseDetector],
+    detectors: Mapping[str, Detector],
     dataset: Dataset,
     *,
     thresh: float = 0.5,
@@ -68,7 +68,7 @@ def compare(
     See Also
     --------
     hazure.evaluation : The metrics this is a loop over.
-    hazure.budget_threshold : Choosing a cut-off from what ``alerts`` costs.
+    hazure.calibration.budget_threshold : Choosing a cut-off from what ``alerts`` costs.
 
     Notes
     -----
@@ -82,14 +82,14 @@ def compare(
     Three detectors against three planted level shifts. Only one of them is built
     to see a change in the mean at all:
 
-    >>> from hazure import IqrDetector, LevelShiftDetector, SpikeDetector
+    >>> from hazure import detectors
     >>> from hazure.datasets import compare, make_series
     >>> dataset = make_series("level_shift", n=2000, n_anomalies=3, strength=5.0)
     >>> table = compare(
     ...     {
-    ...         "iqr": IqrDetector(),
-    ...         "spike": SpikeDetector(window=24),
-    ...         "shift": LevelShiftDetector(window=24),
+    ...         "iqr": detectors.iqr(),
+    ...         "spike": detectors.spike(window=24),
+    ...         "shift": detectors.level_shift(window=24),
     ...     },
     ...     dataset,
     ... )
@@ -111,7 +111,7 @@ def compare(
 
 
 def _score_one(
-    detector: BaseDetector,
+    detector: Detector,
     data: Any,
     truth: Any,
     thresh: float,
@@ -147,7 +147,7 @@ def _score_one(
     if not hasattr(detector, "fit_detect"):
         msg = (
             f"compare() needs detectors, and {type(detector).__name__} has no "
-            f"fit_detect(). Pair a scorer with a threshold using ScoreDetector."
+            f"fit_detect(). Pair a scorer with a threshold using Detector."
         )
         raise TypeError(msg)
 

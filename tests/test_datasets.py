@@ -25,7 +25,7 @@ import polars as pl
 import pyarrow as pa
 import pytest
 
-from hazure import TimeSeries
+from hazure import TimeSeries, detectors
 from hazure.datasets import (
     KINDS,
     Dataset,
@@ -35,17 +35,9 @@ from hazure.datasets import (
     nab_names,
 )
 from hazure.datasets import nab as nab_module
-from hazure.detection import (
-    IqrDetector,
-    LevelShiftDetector,
-    SeasonalDetector,
-    SpikeDetector,
-    ThresholdDetector,
-    VolatilityShiftDetector,
-)
 from hazure.evaluation import recall
 from hazure.events import to_events
-from hazure.scoring import DeviationScorer
+from hazure.scorers import DeviationScorer
 
 HOUR = 3_600_000_000_000
 COMPARE_KEYS = {"recall", "precision", "f1", "alerts", "delay"}
@@ -224,8 +216,8 @@ def test_the_widest_anomalies_that_fit_still_do_not_touch() -> None:
 @pytest.mark.parametrize("kind", ["spike", "dip"])
 def test_a_spike_or_dip_is_visible_in_the_value_distribution(kind: str) -> None:
     dataset = make_series(kind, n=2000, n_anomalies=3)
-    assert recall_of(IqrDetector(), dataset) == 1.0
-    assert recall_of(SpikeDetector(), dataset) == 1.0
+    assert recall_of(detectors.iqr(), dataset) == 1.0
+    assert recall_of(detectors.spike(), dataset) == 1.0
 
 
 def test_a_dip_goes_down_and_a_spike_goes_up() -> None:
@@ -240,8 +232,8 @@ def test_a_level_shift_hides_from_the_distribution_but_not_from_the_mean() -> No
     # The point of the kind: every shifted sample is well inside the normal
     # range, so a rule that judges values one at a time has nothing to see.
     dataset = make_series("level_shift", n=2000, n_anomalies=3, strength=4.0)
-    assert recall_of(IqrDetector(), dataset) == 0.0
-    assert recall_of(LevelShiftDetector(window=24), dataset) == 1.0
+    assert recall_of(detectors.iqr(), dataset) == 0.0
+    assert recall_of(detectors.level_shift(window=24), dataset) == 1.0
 
 
 def test_a_volatility_shift_moves_the_spread_and_leaves_the_mean_alone() -> None:
@@ -263,7 +255,7 @@ def test_a_volatility_shift_detector_finds_the_change_in_the_spread() -> None:
     # against a ground truth expressed as a stretch. At the default thresh=0.5
     # the recall is 0.0 at any strength or window.
     dataset = make_series("volatility_shift", n=2000, n_anomalies=3, strength=8.0)
-    detector = VolatilityShiftDetector(window=24)
+    detector = detectors.volatility_shift(window=24)
     found = found_by(detector, dataset)
     assert float(recall(dataset.events, found, 1.0 / 24)) == 1.0
     assert found.n_events == 3
@@ -326,7 +318,7 @@ def test_a_seasonal_detector_finds_the_break_in_the_rhythm() -> None:
     dataset = make_series(
         "seasonal_break", n=2000, n_anomalies=3, period=24, amplitude=20.0
     )
-    assert recall_of(SeasonalDetector(period=24), dataset) == 1.0
+    assert recall_of(detectors.seasonal(period=24), dataset) == 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -590,7 +582,7 @@ def test_an_empty_hazure_data_home_falls_back_to_the_home_directory(
 def test_compare_reports_the_five_documented_numbers_per_detector() -> None:
     dataset = make_series("spike", n=1000, n_anomalies=3)
     table = compare(
-        {"iqr": IqrDetector(), "spike": SpikeDetector(side="positive")}, dataset
+        {"iqr": detectors.iqr(), "spike": detectors.spike(side="positive")}, dataset
     )
     assert set(table) == {"iqr", "spike"}
     for scores in table.values():
@@ -601,7 +593,7 @@ def test_compare_reports_the_five_documented_numbers_per_detector() -> None:
 def test_compare_separates_a_detector_that_sees_the_kind_from_one_that_cannot() -> None:
     dataset = make_series("level_shift", n=2000, n_anomalies=3, strength=4.0)
     table = compare(
-        {"iqr": IqrDetector(), "shift": LevelShiftDetector(window=24)}, dataset
+        {"iqr": detectors.iqr(), "shift": detectors.level_shift(window=24)}, dataset
     )
     assert table["shift"]["recall"] == 1.0
     assert table["iqr"]["recall"] == 0.0
@@ -609,7 +601,7 @@ def test_compare_separates_a_detector_that_sees_the_kind_from_one_that_cannot() 
 
 def test_compare_counts_the_alerts_each_detector_raised() -> None:
     dataset = make_series("spike", n=1000, n_anomalies=3)
-    table = compare({"spike": SpikeDetector(side="positive")}, dataset)
+    table = compare({"spike": detectors.spike(side="positive")}, dataset)
     assert table["spike"]["alerts"] == 3.0
     assert table["spike"]["precision"] == 1.0
     assert table["spike"]["f1"] == 1.0
@@ -632,9 +624,9 @@ def test_the_delay_is_in_seconds_and_never_negative() -> None:
     dataset = make_series("level_shift", n=2000, n_anomalies=3, strength=4.0)
     table = compare(
         {
-            "iqr": IqrDetector(),
-            "shift": LevelShiftDetector(window=24),
-            "never": ThresholdDetector(low=-1e9, high=1e9),
+            "iqr": detectors.iqr(),
+            "shift": detectors.level_shift(window=24),
+            "never": detectors.limits(low=-1e9, high=1e9),
         },
         dataset,
     )
@@ -651,12 +643,12 @@ def test_the_delay_is_in_seconds_and_never_negative() -> None:
 def test_compare_rejects_something_that_is_not_a_mapping() -> None:
     dataset = make_series("spike", n=200, n_anomalies=1)
     with pytest.raises(TypeError, match="needs a mapping from name to detector"):
-        compare([("iqr", IqrDetector())], dataset)  # type: ignore[arg-type]
+        compare([("iqr", detectors.iqr())], dataset)  # type: ignore[arg-type]
 
 
 def test_compare_rejects_a_bare_scorer_and_points_at_score_detector() -> None:
     dataset = make_series("spike", n=200, n_anomalies=1)
-    with pytest.raises(TypeError, match="ScoreDetector"):
+    with pytest.raises(TypeError, match="Detector"):
         compare({"deviation": DeviationScorer()}, dataset)  # type: ignore[dict-item]
 
 
@@ -670,7 +662,7 @@ def test_compare_rejects_a_dataset_with_more_than_one_column() -> None:
         name="wide", data=wide, events=to_events(wide["a"] > 10.0), description=""
     )
     with pytest.raises(ValueError, match="scores one series at a time"):
-        compare({"iqr": IqrDetector()}, dataset)
+        compare({"iqr": detectors.iqr()}, dataset)
 
 
 def test_compare_of_no_detectors_is_an_empty_table() -> None:

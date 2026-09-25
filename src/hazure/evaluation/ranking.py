@@ -12,7 +12,7 @@ from hazure.evaluation.metrics import _dispatch, _joined
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-    from hazure import TimeSeries
+    from hazure._core import TimeSeries
     from hazure.events import Events
 
 __all__ = [
@@ -38,7 +38,7 @@ def average_precision(y_true: Any, scores: Any) -> float | dict[str, float]:
         and ``NaN`` counts as normal.
     scores
         A continuous score on the same time axis, higher meaning more anomalous —
-        the output of any :class:`~hazure.BaseScorer`. Rows whose score is
+        the output of any :class:`~hazure.Scorer`. Rows whose score is
         ``NaN`` are dropped: an unknown score cannot be ranked.
 
     Returns

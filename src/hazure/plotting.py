@@ -86,7 +86,7 @@ def plot(
         - a mapping of any of those, keyed by the name to use in the legend.
           This is the form to reach for when comparing detectors.
     score
-        Continuous scores, as a :class:`~hazure.scoring` component returns.
+        Continuous scores, as a :class:`~hazure.scorers` component returns.
         Drawn on separate panels below the data, sharing its time axis, because
         a score and the series it describes have no units in common.
     layout
@@ -138,18 +138,18 @@ def plot(
     Examples
     --------
     >>> import numpy as np, pandas as pd                       # doctest: +SKIP
-    >>> from hazure.detection import SpikeDetector             # doctest: +SKIP
+    >>> from hazure import detectors                           # doctest: +SKIP
     >>> from hazure.plotting import plot                       # doctest: +SKIP
     >>> index = pd.date_range("2024-01-01", periods=500, freq="h")
     ... # doctest: +SKIP
     >>> values = pd.Series(np.sin(np.arange(500) / 12), index=index)
     ... # doctest: +SKIP
-    >>> labels = SpikeDetector(window=24).fit_detect(values)   # doctest: +SKIP
+    >>> labels = detectors.spike(window=24).fit_detect(values)  # doctest: +SKIP
     >>> fig, axs = plot(values, anomaly=labels)                # doctest: +SKIP
 
     Compare two detectors on one chart, and read the score that drove them:
 
-    >>> from hazure.scoring import DeviationScorer             # doctest: +SKIP
+    >>> from hazure.scorers import DeviationScorer             # doctest: +SKIP
     >>> fig, axs = plot(                                       # doctest: +SKIP
     ...     values,
     ...     anomaly={"spike": labels, "level": other_labels},

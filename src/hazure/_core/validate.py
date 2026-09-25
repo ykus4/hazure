@@ -6,8 +6,8 @@ each one is checked here, and by the same function: a mistyped choice should
 read the same wherever it is made, and should say what was passed and what was
 allowed rather than only that something was wrong.
 
-The check is deliberately repeated in ``_build``/``_combine`` as well as in
-``__init__``, because :meth:`~hazure.Configurable.set_params` assigns attributes
+The check is deliberately repeated in ``_learn``/``_compute`` as well as in
+``__init__``, because :meth:`~hazure.Component.set_params` assigns attributes
 directly and never runs a constructor.
 """
 

@@ -12,13 +12,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from hazure import BaseThreshold
+from hazure._core import Threshold
 from hazure.thresholds.fence import _valid
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-    from hazure import TimeSeries
+    from hazure._core import TimeSeries
 
 
 __all__ = [
@@ -26,7 +26,7 @@ __all__ = [
 ]
 
 
-class EsdThreshold(BaseThreshold):
+class EsdThreshold(Threshold):
     """Flag scores by the generalised extreme Studentized deviate test.
 
     The test [1]_ repeatedly removes the observation furthest from the mean and

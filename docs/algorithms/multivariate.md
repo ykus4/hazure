@@ -28,7 +28,7 @@ s_t = y_t - \hat{f}(x_t)
 $$
 
 Positive means the target came in above what its features predicted. That sign is
-what `side` filters on, so `RegressionDetector(target="cpu", side="positive")`
+what `side` filters on, so `detectors.regression(target="cpu", side="positive")`
 means "CPU burning hotter than the traffic explains" and ignores the reverse.
 
 The default regressor, `OrdinaryLeastSquares`, solves least squares with an
@@ -44,8 +44,9 @@ perfectly collinear features, say — returns the **minimum-norm** solution rath
 than raising. The fit succeeds; the coefficients just are not individually
 identified, which does not affect the residual.
 
-`RegressionDetector` pairs the residual with a one-sided IQR fence on its
-magnitude, $|s_t| > Q_3(|s|) + 3\,\mathrm{IQR}(|s|)$, then applies `side`.
+`detectors.regression` wraps the residual in `AsScorer(RegressionResidual(...))`
+and pairs it with a one-sided IQR fence on its magnitude, inside a
+`SignedThreshold`: $|s_t| > Q_3(|s|) + 3\,\mathrm{IQR}(|s|)$, then applies `side`.
 
 Anything with `fit(X, y)` and `predict(X)` can be substituted — a gradient
 boosting model, an isotonic fit, a physical model wrapped in two methods. The
@@ -86,7 +87,7 @@ $$
 $W^{\top}W$ is the orthogonal projector onto the retained subspace, so the score
 is the squared length of the part of the centred point that the model has no
 room for — the energy in the discarded directions. It is $\ge 0$ by
-construction, which is why `PcaDetector` bounds it above only.
+construction, which is why `detectors.pca` bounds it above only.
 
 Three things to be deliberate about:
 
@@ -99,7 +100,7 @@ correlation structure instead.
 **The score is squared, with no square root.** Squaring is monotone, so it does
 not change the ranking, but it does change the *distribution* — squaring stretches
 the right tail — and the fence is fitted on that distribution. Hence
-`PcaDetector`'s default `factor=5.0` where most detectors use `3.0`.
+`detectors.pca`'s default `factor=5.0` where most detectors use `3.0`.
 
 **$k$ is a modelling choice, not a tuning knob.** It says how many degrees of
 freedom normal behaviour has. Too large and the residual subspace is empty, so
@@ -177,4 +178,5 @@ which is the semantics of that estimator rather than a workaround.
 Because these read a **label** and not `decision_function`, the underlying
 continuous score is discarded. That is the price of the adapter being universal.
 Where the ranking matters — and for anomaly detection it usually does — wrap the
-model's own score in a `CustomizedTransformer` and threshold it yourself.
+model's own score in a `CustomizedTransformer`, use it as a scorer through
+`AsScorer`, and pair it with a threshold of your choosing in a `Detector`.

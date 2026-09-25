@@ -9,7 +9,7 @@ and is not visible in any of the four.
 
 :func:`average_precision` and :func:`roc_auc` need no threshold at all. They
 score a continuous score directly, by how well it *ranks* the anomalous samples,
-which is the only way to judge a :class:`~hazure.BaseScorer` without also judging
+which is the only way to judge a :class:`~hazure.Scorer` without also judging
 the fence you put around it.
 
 :func:`split_train_test` builds time-ordered folds. Shuffling is not an option for

@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from hazure import BaseAggregator
+from hazure._core import Aggregator
 from hazure.ensemble.states import _states
 
 if TYPE_CHECKING:
-    from hazure import TimeSeries
+    from hazure._core import TimeSeries
 
 
 __all__ = [
@@ -18,7 +18,7 @@ __all__ = [
 ]
 
 
-class AndAggregator(BaseAggregator):
+class AndAggregator(Aggregator):
     """Flag a point only where every input agrees.
 
     The intersection of the inputs: use it to demand corroboration, so that a
@@ -39,7 +39,7 @@ class AndAggregator(BaseAggregator):
     [1.0, 0.0, 0.0, nan]
     """
 
-    def _combine(self, ts: TimeSeries) -> TimeSeries:
+    def _compute(self, ts: TimeSeries) -> TimeSeries:
         anomalous, unknown = _states(ts.values)
         normal = ~anomalous & ~unknown
         combined = np.where(

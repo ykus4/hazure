@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hazure import BaseThreshold, TimeSeries
+from hazure import Threshold, TimeSeries
 from hazure.thresholds import (
     MAD_SCALE,
     EsdThreshold,
@@ -21,6 +21,7 @@ from hazure.thresholds import (
     IqrThreshold,
     MadThreshold,
     QuantileThreshold,
+    SignedThreshold,
 )
 from tests.conftest import BACKENDS, make_native
 
@@ -37,7 +38,7 @@ def scores(*values: float) -> TimeSeries:
     return TimeSeries.from_arrays(time, np.asarray(values, dtype=float))
 
 
-def labels_of(threshold: BaseThreshold, ts: TimeSeries) -> np.ndarray:
+def labels_of(threshold: Threshold, ts: TimeSeries) -> np.ndarray:
     """Fit if needed, apply, and return a flat array of labels."""
     if threshold.trainable:
         threshold.fit(ts)
@@ -282,7 +283,7 @@ def test_an_esd_threshold_rejects_an_alpha_outside_the_unit_interval() -> None:
 
 @pytest.mark.parametrize("threshold", ALL_RULES, ids=lambda t: type(t).__name__)
 def test_every_threshold_passes_a_missing_score_through_as_unknown(
-    threshold: BaseThreshold,
+    threshold: Threshold,
 ) -> None:
     """An unmeasured point cannot be declared normal."""
     ts = scores(0.0, 1.0, np.nan, 0.5, 0.0, 1.0, 0.0, 0.5)
@@ -293,7 +294,7 @@ def test_every_threshold_passes_a_missing_score_through_as_unknown(
 
 @pytest.mark.parametrize("threshold", ALL_RULES, ids=lambda t: type(t).__name__)
 def test_every_threshold_returns_all_unknown_for_an_all_missing_series(
-    threshold: BaseThreshold,
+    threshold: Threshold,
 ) -> None:
     ts = scores(np.nan, np.nan, np.nan, np.nan)
     assert np.isnan(labels_of(threshold.clone(), ts)).all()
@@ -301,7 +302,7 @@ def test_every_threshold_returns_all_unknown_for_an_all_missing_series(
 
 @pytest.mark.parametrize("threshold", ALL_RULES, ids=lambda t: type(t).__name__)
 def test_every_threshold_flags_nothing_in_a_constant_series(
-    threshold: BaseThreshold,
+    threshold: Threshold,
 ) -> None:
     """A series with no variation has no anomalies, and warns about nothing."""
     ts = scores(*([0.0] * 20))
@@ -311,7 +312,7 @@ def test_every_threshold_flags_nothing_in_a_constant_series(
 
 @pytest.mark.parametrize("threshold", ALL_RULES, ids=lambda t: type(t).__name__)
 def test_every_threshold_survives_a_single_observation(
-    threshold: BaseThreshold,
+    threshold: Threshold,
 ) -> None:
     labels = labels_of(threshold.clone(), scores(0.0))
     assert labels.shape == (1,)
@@ -319,7 +320,7 @@ def test_every_threshold_survives_a_single_observation(
 
 @pytest.mark.parametrize("threshold", ALL_RULES, ids=lambda t: type(t).__name__)
 def test_every_threshold_emits_only_the_three_label_states(
-    threshold: BaseThreshold,
+    threshold: Threshold,
 ) -> None:
     values = np.random.default_rng(5).normal(size=50)
     values[10] = 40.0
@@ -329,7 +330,7 @@ def test_every_threshold_emits_only_the_three_label_states(
 
 @pytest.mark.parametrize("threshold", ALL_RULES, ids=lambda t: type(t).__name__)
 def test_every_threshold_round_trips_its_parameters_through_clone(
-    threshold: BaseThreshold,
+    threshold: Threshold,
 ) -> None:
     copy = threshold.clone()
     assert copy.get_params() == threshold.get_params()
@@ -398,3 +399,35 @@ def test_every_backend_produces_identical_esd_labels() -> None:
 def test_a_threshold_must_be_fitted_before_use() -> None:
     with pytest.raises(RuntimeError, match="must be fitted"):
         IqrThreshold().apply(scores(1.0, 2.0))
+
+
+# -- SignedThreshold -------------------------------------------------------
+
+
+def test_a_signed_threshold_judges_magnitude_and_reports_the_chosen_side() -> None:
+    time = np.arange("2024-01-01", "2024-01-11", dtype="datetime64[D]")
+    scores = [0.1, -0.2, 0.0, 0.3, -0.1, 8.0, 0.1, -0.3, 0.2, -9.0]
+    ts = TimeSeries.from_arrays(time, scores)
+    fence = IqrThreshold(factor=(None, 3.0))
+    for side, expected in (("both", [5, 9]), ("positive", [5]), ("negative", [9])):
+        labels = SignedThreshold(fence.clone(), side=side).fit_apply(ts)
+        assert list(np.flatnonzero(labels.values.ravel() == 1.0)) == expected
+
+
+def test_a_signed_threshold_keeps_unknown_scores_unknown() -> None:
+    time = np.arange("2024-01-01", "2024-01-04", dtype="datetime64[D]")
+    ts = TimeSeries.from_arrays(time, [np.nan, -5.0, 5.0])
+    labels = SignedThreshold(FixedThreshold(high=1.0), side="positive").apply(ts)
+    np.testing.assert_array_equal(labels.values.ravel(), [np.nan, 0.0, 1.0])
+
+
+def test_a_signed_threshold_rejects_a_bad_side_or_a_non_threshold() -> None:
+    with pytest.raises(ValueError, match="is not one of"):
+        SignedThreshold(FixedThreshold(high=1.0), side="up")  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="does not produce labels"):
+        SignedThreshold(object())  # type: ignore[arg-type]
+
+
+def test_a_signed_threshold_is_as_trainable_as_what_it_wraps() -> None:
+    assert not SignedThreshold(FixedThreshold(high=1.0)).is_trainable
+    assert SignedThreshold(IqrThreshold()).is_trainable

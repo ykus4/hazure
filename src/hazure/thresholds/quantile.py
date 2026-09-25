@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from hazure import BaseThreshold
+from hazure._core import Threshold
 from hazure.thresholds.fence import _label, _require_a_bound, _valid
 
 if TYPE_CHECKING:
-    from hazure import TimeSeries
+    from hazure._core import TimeSeries
 
 
 __all__ = [
@@ -19,7 +19,7 @@ __all__ = [
 ]
 
 
-class QuantileThreshold(BaseThreshold):
+class QuantileThreshold(Threshold):
     """Flag scores beyond quantiles of the training scores.
 
     The quantiles are turned into absolute cut-offs at :meth:`fit` time, so the

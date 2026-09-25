@@ -32,13 +32,13 @@ detector learns normal behaviour from the same series it searches.
 ## Detect
 
 The daily cycle is normal behaviour, so it belongs in the model rather than in
-the anomalies. `SeasonalDetector` learns the average shape of one cycle and
+the anomalies. `detectors.seasonal` learns the average shape of one cycle and
 flags the hours the shape fails to explain.
 
 ```python
-from hazure.detection import SeasonalDetector
+from hazure import detectors
 
-detector = SeasonalDetector(period=24)
+detector = detectors.seasonal(period=24)
 labels = detector.fit_detect(traffic)
 
 print(labels.value_counts(dropna=False).to_dict())
@@ -108,29 +108,31 @@ default an event counts as detected when half its duration is covered; pass
 
 ## Look at the score behind the verdict
 
-The detector is a scorer and a threshold paired. Ask the scorer directly and you
-get the signed seasonal residual, which is worth ranking even where nothing
-crosses a line.
+The detector is a scorer and a threshold held together, and printing it says
+so:
 
 ```python
-from hazure.scoring import SeasonalResidualScorer
+print(detector)
+# Detector(scorer=AsScorer(transformer=SeasonalDecomposition(period=24)), threshold=SignedThreshold(threshold=IqrThreshold(factor=(None, 3.0))))
+```
 
-scores = SeasonalResidualScorer(period=24).fit_score(traffic)
+The scorer is the residual of a seasonal decomposition, and the threshold is an
+inter-quartile fence on its magnitude. Ask the fitted scorer directly and you get
+the signed residual, which is worth ranking even where nothing crosses a line.
+
+```python
+scores = detector.scorer.score(traffic)
 print(scores.iloc[300:303].round(1).to_list())
 # [-76.1, -66.2, -56.7]
 ```
 
-Swap the policy without touching the scorer. `ScoreDetector` pairs any scorer
-with any threshold:
+Swap the policy without touching the scorer. Any part is reachable by name, and
+`Detector(scorer, threshold)` pairs any scorer with any threshold:
 
 ```python
-from hazure.detection import ScoreDetector
 from hazure.thresholds import QuantileThreshold
 
-strict = ScoreDetector(
-    SeasonalResidualScorer(period=24),
-    QuantileThreshold(low=0.01, high=0.99),
-)
+strict = detector.clone().set_params(threshold=QuantileThreshold(low=0.01, high=0.99))
 print(int(strict.fit_detect(traffic).sum()))
 # 12
 ```
@@ -172,15 +174,15 @@ flavour it went in as.
 import polars as pl
 
 wide = pl.DataFrame({"time": index, "rps": traffic.to_numpy()})
-polars_labels = SeasonalDetector(period=24).fit_detect(wide)
+polars_labels = detectors.seasonal(period=24).fit_detect(wide)
 print(type(polars_labels).__name__, int(polars_labels["rps"].sum()))
 # DataFrame 6
 ```
 
 ## Where to go next
 
-- [Guide](guide.md) — the five component types, which detector suits which kind
-  of anomaly, and the two behaviours that surprise people most.
+- [Guide](guide.md) — the component types, which detector suits which kind of
+  anomaly, and the two behaviours that surprise people most.
 - [How it works](algorithms/index.md) — the mathematics behind each detector,
   starting with the [rolling comparisons](algorithms/rolling.md) most of them
   are built from.

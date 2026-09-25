@@ -14,6 +14,9 @@ distribution. :class:`PotThreshold` is parameterised the other way round: you
 give it the false-alarm probability you are willing to accept, and it fits the
 tail of the training scores well enough to place a fence there — including
 beyond the largest score ever seen, which no quantile of a sample can reach.
+
+:class:`SignedThreshold` wraps any of them for a signed score: the rule judges the
+magnitude, and ``side`` keeps only the direction of interest.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ from hazure.thresholds.iqr import IqrThreshold
 from hazure.thresholds.mad import MadThreshold
 from hazure.thresholds.pot import PotThreshold
 from hazure.thresholds.quantile import QuantileThreshold
+from hazure.thresholds.signed import Side, SignedThreshold
 
 __all__ = [
     "MAD_SCALE",
@@ -36,4 +40,6 @@ __all__ = [
     "MadThreshold",
     "PotThreshold",
     "QuantileThreshold",
+    "Side",
+    "SignedThreshold",
 ]

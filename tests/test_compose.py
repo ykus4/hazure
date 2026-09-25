@@ -12,23 +12,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hazure import (
-    BaseAggregator,
-    BaseDetector,
-    BaseScorer,
-    BaseThreshold,
-    BaseTransformer,
-    TimeSeries,
-    double_rolling,
-    rolling,
-)
+from hazure import Aggregator, Detector, Scorer, Threshold, TimeSeries, Transformer
 from hazure.compose import SOURCE, Graph, Node, Pipeline
+from hazure.transformers import double_rolling, rolling
 from tests.conftest import BACKENDS, make_native
 
 # -- stand-ins --------------------------------------------------------------
 
 
-class Smooth(BaseTransformer):
+class Smooth(Transformer):
     """Rolling median, to stand in for a feature step."""
 
     trainable: ClassVar[bool] = False
@@ -40,7 +32,7 @@ class Smooth(BaseTransformer):
         return ts.wrap(rolling(ts.values[:, 0], self.window, "median", min_periods=1))
 
 
-class ShiftScore(BaseScorer):
+class ShiftScore(Scorer):
     """Magnitude of the change between adjacent windows."""
 
     trainable: ClassVar[bool] = False
@@ -54,7 +46,7 @@ class ShiftScore(BaseScorer):
         )
 
 
-class Iqr(BaseThreshold):
+class Iqr(Threshold):
     """Upper inter-quartile fence."""
 
     def __init__(self, factor: float = 3.0) -> None:
@@ -68,8 +60,8 @@ class Iqr(BaseThreshold):
         return ts.wrap((ts.values[:, 0] > self.high_).astype(float))
 
 
-class Flagger(BaseDetector):
-    """A detector in its own right, for testing a detector terminal."""
+class Flagger(Threshold):
+    """A whole detection rule in one class, used through ``Detector(None, ...)``."""
 
     def __init__(self, window: int = 3, factor: float = 3.0) -> None:
         self.window = window
@@ -82,17 +74,17 @@ class Flagger(BaseDetector):
         return self.inner_.run(ShiftScore(self.window).run(ts))
 
 
-class AndAgg(BaseAggregator):
+class AndAgg(Aggregator):
     """Anomalous only where every input agrees."""
 
-    def _combine(self, ts: TimeSeries) -> TimeSeries:
+    def _compute(self, ts: TimeSeries) -> TimeSeries:
         return ts.wrap(np.nanmin(ts.values, axis=1), ["anomaly"])
 
 
-class OrAgg(BaseAggregator):
+class OrAgg(Aggregator):
     """Anomalous where any input says so."""
 
-    def _combine(self, ts: TimeSeries) -> TimeSeries:
+    def _compute(self, ts: TimeSeries) -> TimeSeries:
         return ts.wrap(np.nanmax(ts.values, axis=1), ["anomaly"])
 
 
@@ -113,7 +105,7 @@ def detector_pipeline() -> Pipeline:
     )
 
 
-def agreeing_graph(aggregator: BaseAggregator) -> Graph:
+def agreeing_graph(aggregator: Aggregator) -> Graph:
     """Return a graph that scores the series twice and combines the verdicts."""
     return Graph(
         [
@@ -142,7 +134,7 @@ def test_a_pipeline_returns_the_input_flavour(stepped: pd.Series) -> None:
 
 def test_a_pipeline_ending_in_a_threshold_is_a_detector() -> None:
     """Binary labels out means the caller should be able to say ``detect``."""
-    assert detector_pipeline().output_kind == "detect"
+    assert detector_pipeline().output_kind == "labels"
 
 
 def test_a_pipeline_ending_in_a_threshold_also_answers_to_apply(
@@ -165,7 +157,7 @@ def test_a_pipeline_ending_in_a_transformer_answers_to_transform(
     stepped: pd.Series,
 ) -> None:
     pipeline = Pipeline([("smooth", Smooth(3))])
-    assert pipeline.output_kind == "transform"
+    assert pipeline.output_kind == "series"
     assert len(pipeline.fit_transform(stepped)) == len(stepped)
 
 
@@ -208,13 +200,18 @@ def test_a_non_component_step_is_rejected() -> None:
         Pipeline([("bad", "not a component")])  # type: ignore[list-item]
 
 
-def test_an_aggregator_cannot_sit_in_a_pipeline(stepped: pd.Series) -> None:
-    """An aggregator needs several inputs, which a chain cannot supply."""
-    pipeline = Pipeline(
-        [("shift", ShiftScore()), ("cut", Iqr()), ("combine", AndAgg())]
+def test_an_aggregator_combines_the_columns_a_pipeline_step_produced(
+    stepped: pd.Series,
+) -> None:
+    """A univariate step fans out over a frame, and an aggregator joins it back."""
+    frame = pd.DataFrame({"a": stepped, "b": stepped[::-1].to_numpy()})
+    per_column = Iqr().fit(frame).apply(frame)
+    pipeline = Pipeline([("cut", Iqr()), ("combine", OrAgg())])
+    combined = pipeline.fit_detect(frame)
+    assert list(combined.columns) == ["anomaly"]
+    np.testing.assert_array_equal(
+        combined["anomaly"].to_numpy(), per_column.max(axis=1).to_numpy()
     )
-    with pytest.raises(TypeError, match="cannot sit in a Pipeline"):
-        pipeline.fit(stepped)
 
 
 def test_a_pipeline_must_be_fitted_first(stepped: pd.Series) -> None:
@@ -308,12 +305,12 @@ def test_a_pipeline_renders_as_mermaid() -> None:
 
 def test_a_graph_accepts_a_mapping_of_nodes() -> None:
     graph = Graph({"only": Node("only", Smooth())})
-    assert graph.output_kind == "transform"
+    assert graph.output_kind == "series"
 
 
 def test_a_detector_node_makes_the_graph_a_detector(stepped: pd.Series) -> None:
-    graph = Graph([Node("flag", Flagger(window=4))])
-    assert graph.output_kind == "detect"
+    graph = Graph([Node("flag", Detector(None, Flagger(window=4)))])
+    assert graph.output_kind == "labels"
     assert graph.fit_detect(stepped).loc[stepped.index[15]] == 1.0
 
 

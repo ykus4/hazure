@@ -2,7 +2,7 @@
 
 A threshold answers one question — *is this score unusual enough to report* —
 and answers it the same way whatever produced the score. That is why it is a
-separate object: replacing `SeasonalResidualScorer` with `HampelScorer` does not
+separate object: replacing a seasonal residual with `HampelScorer` does not
 change what "unusual enough" means, and should not require rewriting it.
 
 Every rule below reduces to a pair of fences $\ell$ and $u$ learned from the
@@ -32,7 +32,7 @@ nothing is a mistake, not a configuration.
 
 Use it when the limits come from outside the data: an SLO, a sensor range, a
 saturation point, or a score that is already in interpretable units (which is
-exactly why `HampelDetector` uses it).
+exactly why `detectors.hampel` uses it).
 
 ## QuantileThreshold
 
@@ -68,7 +68,7 @@ side leaves that side unbounded. This is how every compound detector in the
 library thresholds a magnitude:
 
 ```python
-from hazure import IqrThreshold
+from hazure.thresholds import IqrThreshold
 
 IqrThreshold(factor=(None, 3.0))  # -inf below, Q3 + 3 IQR above
 ```
@@ -125,7 +125,7 @@ before the estimate can be dragged arbitrarily far:
 Below that fraction the estimate is *resistant*: the outliers sit beyond the
 quantiles being read, so they cannot move them. Above it, a quantile lands inside
 the anomalous population, the spread estimate inflates to span both regimes, and
-the fence stops separating them. `IqrDetector` flagging nothing once 40 % of a
+the fence stops separating them. `detectors.iqr()` flagging nothing once 40 % of a
 series has shifted is [this arithmetic working
 correctly](../guide.md#an-inter-quartile-fence-widens-as-the-fraction-of-unusual-scores-grows),
 not a failure: no rule of the form "unusual relative to this sample" can call the
@@ -133,8 +133,8 @@ majority of the sample unusual.
 
 The ways out, in order of preference — fit on a clean period and `detect` on the
 suspect one; use a `FixedThreshold`, which has no breakdown point because it
-estimates nothing; or ask a local question (`SpikeDetector`,
-`LevelShiftDetector`), where the comparison population is a neighbouring window
+estimates nothing; or ask a local question (`detectors.spike`,
+`detectors.level_shift`), where the comparison population is a neighbouring window
 rather than the whole series.
 
 ## EsdThreshold
@@ -294,9 +294,9 @@ against.
 
 ## Sides
 
-`side` belongs to the detector rather than the threshold, but it is best
-understood here, because it does not change the fence. A signed-score detector
-thresholds the **magnitude**, then filters on the **sign**:
+`side` belongs to `SignedThreshold`, a wrapper around any of the rules above, and
+it does not change the fence. `SignedThreshold(rule, side)` fits and applies
+`rule` to the **magnitude**, then filters on the **sign**:
 
 $$
 y_t =

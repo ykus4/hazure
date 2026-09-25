@@ -4,6 +4,10 @@ An aggregator reduces the outputs of several detectors to a single label series,
 which is how multi-condition rules and detector ensembles are expressed. Every
 aggregator emits one column named ``anomaly``.
 
+An aggregator is an ordinary component that needs every column at once: call
+:meth:`~hazure.Aggregator.aggregate` on series you already hold, or put it at the
+end of a :class:`~hazure.Graph` whose branches it joins.
+
 Three-valued logic
 ------------------
 

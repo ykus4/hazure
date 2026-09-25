@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from hazure import BaseThreshold
+from hazure._core import Threshold
 from hazure.thresholds.fence import FactorSpec, _bound, _factors, _label, _valid
 
 if TYPE_CHECKING:
-    from hazure import TimeSeries
+    from hazure._core import TimeSeries
 
 
 __all__ = [
@@ -19,7 +19,7 @@ __all__ = [
 ]
 
 
-class IqrThreshold(BaseThreshold):
+class IqrThreshold(Threshold):
     """Flag scores far outside the training inter-quartile range.
 
     The cut-offs are ``Q1 - factor_low * IQR`` and ``Q3 + factor_high * IQR``,

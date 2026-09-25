@@ -166,11 +166,11 @@ def make_series(
     mean:
 
     >>> shifted = make_series("level_shift", n=2000, strength=4.0)
-    >>> from hazure import IqrDetector, LevelShiftDetector
+    >>> from hazure import detectors
     >>> from hazure.evaluation import recall
-    >>> recall(shifted.events, to_events(IqrDetector().fit_detect(shifted.data)))
+    >>> recall(shifted.events, to_events(detectors.iqr().fit_detect(shifted.data)))
     0.0
-    >>> detector = LevelShiftDetector(window=24)
+    >>> detector = detectors.level_shift(window=24)
     >>> recall(shifted.events, to_events(detector.fit_detect(shifted.data)))
     1.0
     """
@@ -408,7 +408,7 @@ def _plant(
 
 
 def _one_events(marks: Events | dict[str, Events]) -> Events:
-    """Narrow :func:`~hazure.to_events` output, which is a dict for wide input."""
+    """Narrow :func:`~hazure.events.to_events` output, a dict for wide input."""
     if isinstance(marks, dict):  # pragma: no cover - the label series is univariate
         msg = "make_series builds one label column, so to_events returns one Events."
         raise TypeError(msg)

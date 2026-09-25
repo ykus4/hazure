@@ -143,8 +143,9 @@ def load_nab(
     deliberately wider than it, because the benchmark scores early detection
     favourably. So the windows are what the benchmark's own scoring uses, and they
     are not a claim that every sample inside one is abnormal — an event-based
-    :func:`~hazure.recall` against them is the metric they support, and a
-    sample-based :func:`~hazure.precision` against them is not really answerable.
+    :func:`~hazure.evaluation.recall` against them is the metric they support, and
+    a sample-based :func:`~hazure.evaluation.precision` against them is not really
+    answerable.
 
     The series are irregular in places: several have gaps of hours where
     collection stopped. Detectors configured with sample counts are unaffected;

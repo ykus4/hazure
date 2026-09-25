@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from hazure import BaseAggregator
+from hazure._core import Aggregator
 from hazure.ensemble.states import _states
 
 if TYPE_CHECKING:
-    from hazure import TimeSeries
+    from hazure._core import TimeSeries
 
 
 __all__ = [
@@ -18,7 +18,7 @@ __all__ = [
 ]
 
 
-class VoteAggregator(BaseAggregator):
+class VoteAggregator(Aggregator):
     """Flag a point when enough of the inputs do.
 
     The middle ground between :class:`OrAggregator` and :class:`AndAggregator`,
@@ -58,7 +58,7 @@ class VoteAggregator(BaseAggregator):
     def __init__(self, threshold: float = 0.5) -> None:
         self.threshold = threshold
 
-    def _combine(self, ts: TimeSeries) -> TimeSeries:
+    def _compute(self, ts: TimeSeries) -> TimeSeries:
         if not 0.0 <= self.threshold <= 1.0:
             msg = (
                 f"threshold must be a fraction in [0, 1], got {self.threshold}. "

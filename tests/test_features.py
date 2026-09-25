@@ -13,7 +13,7 @@ import pandas as pd
 import pytest
 
 from hazure import TimeSeries
-from hazure.features import (
+from hazure.transformers import (
     CustomizedTransformer,
     DoubleRollingAggregate,
     OrdinaryLeastSquares,
@@ -31,7 +31,7 @@ from hazure.features import (
 from tests.conftest import BACKENDS, make_native
 
 if TYPE_CHECKING:
-    from hazure import BaseTransformer
+    from hazure import Transformer
 
 #: A repeating profile that sums to zero, so it survives centring untouched.
 PROFILE = np.array([0.0, 1.0, 0.0, -1.0])
@@ -56,7 +56,7 @@ def flat(ts: TimeSeries) -> np.ndarray:
     return np.asarray(ts.values[:, 0])
 
 
-def applied(transformer: BaseTransformer, ts: TimeSeries) -> TimeSeries:
+def applied(transformer: Transformer, ts: TimeSeries) -> TimeSeries:
     """Fit on a series and transform it, staying inside the TimeSeries world."""
     return transformer.fit(ts).run(ts)
 
@@ -946,7 +946,7 @@ def test_a_customized_transformer_rejects_a_changed_row_count() -> None:
 # ---------------------------------------------------------------------------
 
 
-def configured_transformers() -> list[BaseTransformer]:
+def configured_transformers() -> list[Transformer]:
     """One instance of every transformer, with non-default parameters."""
     return [
         RollingAggregate(

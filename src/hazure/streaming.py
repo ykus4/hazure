@@ -28,20 +28,20 @@ once, on a period you are willing to call normal, and can be stored with
 :meth:`~hazure.Component.to_dict` and reloaded next week — so what "normal" means
 is a decision you made deliberately and can point at, rather than a property of
 whatever window the monitor happens to be looking at. Where you *do* want the
-fence to move as scores arrive, :meth:`hazure.PotThreshold.update` is the piece
-that does it, and the two compose: stream the scorer, and hand each score to the
-threshold.
+fence to move as scores arrive, :meth:`hazure.thresholds.PotThreshold.update` is
+the piece that does it, and the two compose: stream the scorer, and hand each
+score to the threshold.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
-from hazure._core import Component, Configurable, TimeSeries, parse_duration
+from hazure._core import Component, Persistent, TimeSeries, parse_duration
 from hazure.events.interval import _timestamp_to_ns
 
 if TYPE_CHECKING:
@@ -55,7 +55,7 @@ __all__ = [
 ]
 
 
-class Stream(Configurable):
+class Stream(Persistent):
     """A fitted component, fed one observation at a time.
 
     Parameters
@@ -91,7 +91,7 @@ class Stream(Configurable):
     See Also
     --------
     prime : Fill the buffer from history before the first live observation.
-    hazure.PotThreshold.update : A fence that moves as scores arrive, for the
+    hazure.thresholds.PotThreshold.update : A fence that moves as scores arrive, for the
         cases where holding it fixed is not what you want.
 
     Notes
@@ -113,12 +113,12 @@ class Stream(Configurable):
 
     Sizing ``history`` is the one thing that needs care, and it is not simply the
     window a detector was configured with. A detector built on
-    :class:`~hazure.DoubleRollingAggregate` looks back over two windows;
-    :class:`~hazure.SeasonalDetector` needs at least a period, and reads better
-    with several; a :class:`~hazure.Pipeline` needs the sum of what its steps
-    consume, because each step's output starts later than its input did. Rather
-    than reason about it, hand :meth:`prime` more history than you think you need
-    and let it tell you.
+    :class:`~hazure.transformers.DoubleRollingAggregate` looks back over two
+    windows; :func:`~hazure.detectors.seasonal` needs at least a period, and
+    reads better with several; a :class:`~hazure.Pipeline` needs the sum of what
+    its steps consume, because each step's output starts later than its input
+    did. Rather than reason about it, hand :meth:`prime` more history than you
+    think you need and let it tell you.
 
     Examples
     --------
@@ -127,11 +127,11 @@ class Stream(Configurable):
 
     >>> import numpy as np
     >>> import pandas as pd
-    >>> from hazure import SpikeDetector
+    >>> from hazure import detectors
     >>> index = pd.date_range("2024-03-01", periods=24 * 14, freq="h", name="time")
     >>> rng = np.random.default_rng(0)
     >>> history = pd.Series(100 + rng.normal(0, 2, len(index)), index=index, name="rps")
-    >>> detector = SpikeDetector(window=24).fit(history)
+    >>> detector = detectors.spike(window=24).fit(history)
     >>> stream = Stream(detector, history=48).prime(history)
 
     A sample in line with the fortnight is unremarkable, and one four times the
@@ -161,6 +161,9 @@ class Stream(Configurable):
     _values: NDArray[np.float64]
     _columns: tuple[str, ...] | None = None
     _seen: int = 0
+
+    #: The buffer is state, not cache: a stored stream resumes where it left off.
+    _persisted: ClassVar[tuple[str, ...]] = ("_time", "_values", "_columns", "_seen")
 
     def __init__(self, component: Component, history: int | str | timedelta) -> None:
         _check_component(component)
@@ -257,15 +260,15 @@ class Stream(Configurable):
 
         >>> import numpy as np
         >>> import pandas as pd
-        >>> from hazure import SpikeDetector
+        >>> from hazure import detectors
         >>> index = pd.date_range("2024-01-01", periods=200, freq="h", name="time")
         >>> rng = np.random.default_rng(0)
         >>> values = pd.Series(rng.normal(size=200), index=index, name="x")
-        >>> detector = SpikeDetector(window=24).fit(values)
+        >>> detector = detectors.spike(window=24).fit(values)
         >>> Stream(detector, history=5).prime(values)
         Traceback (most recent call last):
             ...
-        ValueError: Stream(history=5) is too short for SpikeDetector: ...
+        ValueError: Stream(history=5) is too short for Detector(...): ...
         """
         ts = TimeSeries.from_any(data)
         self._columns = _resolve_columns(self.component, ts.columns)
@@ -314,9 +317,9 @@ class Stream(Configurable):
         one of them. Comparing the last row catches a buffer that does not reach far
         enough back. It cannot catch a component that reads forward — a centred
         window, or the right-hand window of a
-        :class:`~hazure.DoubleRollingAggregate` — because at the newest observation
-        there is no future in *either* series, so both answers are equally blind and
-        equally NaN, and they agree.
+        :class:`~hazure.transformers.DoubleRollingAggregate` — because at the newest
+        observation there is no future in *either* series, so both answers are
+        equally blind and equally NaN, and they agree.
 
         So interior rows are probed too. For those the batch pass can see what came
         after and a stream could not, which is exactly the discrepancy a
@@ -352,7 +355,7 @@ class Stream(Configurable):
         """Describe a buffer that does not reach far enough back."""
         return (
             f"Stream(history={self.history!r}) is too short for "
-            f"{type(self.component).__name__}: it retains {self._time.shape[0]} of "
+            f"{self.component!r}: it retains {self._time.shape[0]} of "
             f"the {full.n_rows} observations primed, and over that buffer the last "
             f"observation comes out as {_render(got)} rather than the "
             f"{_render(expected)} the full history gives it. The component looks "
@@ -370,7 +373,7 @@ class Stream(Configurable):
     ) -> str:
         """Describe a component that reads forward and so cannot be streamed."""
         return (
-            f"{type(self.component).__name__} cannot be streamed: it reads "
+            f"{self.component!r} cannot be streamed: it reads "
             f"observations that come *after* the one it is judging. Row {position} "
             f"of the primed history comes out as {_render(expected)} when the whole "
             f"series is available and {_render(got)} when only the "
@@ -685,10 +688,7 @@ def _check_component(component: Any) -> None:
     """
     if not isinstance(component, Component):
         msg = (
-            f"Stream needs a hazure Component to drive, got "
-            f"{type(component).__name__}. An Aggregator takes several label "
-            f"series rather than one, and so has nothing to stream on its own; "
-            f"put it in a Graph and stream that."
+            f"Stream needs a hazure Component to drive, got {type(component).__name__}."
         )
         raise TypeError(msg)
 
@@ -766,7 +766,7 @@ def _resolve_columns(component: Component, offered: tuple[str, ...]) -> tuple[st
     missing = [name for name in learned if name not in offered]
     if missing:
         msg = (
-            f"{type(component).__name__} was fitted on {list(learned)}, and "
+            f"{component!r} was fitted on {list(learned)}, and "
             f"{missing} is not among the {list(offered)} being streamed. Feed the "
             f"stream the same columns the component was fitted on."
         )

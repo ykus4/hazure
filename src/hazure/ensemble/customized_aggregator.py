@@ -6,19 +6,19 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from hazure import BaseAggregator
+from hazure._core import Aggregator
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from hazure import TimeSeries
+    from hazure._core import TimeSeries
 
 __all__ = [
     "CustomizedAggregator",
 ]
 
 
-class CustomizedAggregator(BaseAggregator):
+class CustomizedAggregator(Aggregator):
     """Wrap a user function into an aggregator.
 
     The contract is numpy in, numpy out: ``aggregate_func(labels, **params)``
@@ -67,7 +67,7 @@ class CustomizedAggregator(BaseAggregator):
         self.aggregate_func = aggregate_func
         self.aggregate_func_params = aggregate_func_params
 
-    def _combine(self, ts: TimeSeries) -> TimeSeries:
+    def _compute(self, ts: TimeSeries) -> TimeSeries:
         params = self.aggregate_func_params or {}
         result = np.asarray(self.aggregate_func(ts.values, **params), dtype=np.float64)
         if result.ndim == 2 and result.shape[1] == 1:

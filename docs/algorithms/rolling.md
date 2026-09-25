@@ -107,16 +107,17 @@ end has both windows.
 
 ## The three detectors this produces
 
-Each is the same scorer with a different shape of window, thresholded by a
-one-sided IQR fence on the magnitude ([why one-sided](thresholds.md#sides)):
+Each is the same scorer — `AsScorer(DoubleRollingAggregate(...))` — with a
+different shape of window, thresholded by a one-sided IQR fence on the magnitude
+inside a `SignedThreshold` ([why one-sided](thresholds.md#sides)):
 
 | Detector | Windows | `agg` | `diff` | Default `factor` |
 | --- | --- | --- | --- | --- |
-| `SpikeDetector` | $(w,\ 1)$ | `"median"` | `"diff"` | 3.0 |
-| `LevelShiftDetector` | $(w,\ w)$ | `"median"` | `"diff"` | 6.0 |
-| `VolatilityShiftDetector` | $(w,\ w)$ | `"std"` | `"rel_diff"` | 6.0 |
+| `detectors.spike` | $(w,\ 1)$ | `"median"` | `"diff"` | 3.0 |
+| `detectors.level_shift` | $(w,\ w)$ | `"median"` | `"diff"` | 6.0 |
+| `detectors.volatility_shift` | $(w,\ w)$ | `"std"` | `"rel_diff"` | 6.0 |
 
-**`SpikeDetector`** has a right window of exactly one observation, so $R_i = x_i$
+**`detectors.spike`** has a right window of exactly one observation, so $R_i = x_i$
 and the score collapses to
 
 $$
@@ -127,13 +128,13 @@ $$
 the reference median drifts along with the series. That is a feature: whatever
 the level was yesterday, it is the last hour that decides whether now is a spike.
 
-**`LevelShiftDetector`** makes both windows long. A single odd value cannot move
+**`detectors.level_shift`** makes both windows long. A single odd value cannot move
 a wide median, so the score only rises when the two windows genuinely straddle
 two different levels. Note what it therefore reports: the moment of change, not
 the stretch that follows it — [the first of the two surprises in the
 guide](../guide.md#a-shift-detector-reports-the-change-point-not-the-anomalous-interval).
 
-**`VolatilityShiftDetector`** measures spread instead of position, relatively.
+**`detectors.volatility_shift`** measures spread instead of position, relatively.
 `agg` may be any of `std`, `var`, `iqr`, `idr`; the last two are more resistant if
 the noisy regime also contains outliers. Note the asymmetry that a ratio carries:
 a relative *increase* is unbounded above, while a relative *decrease* is bounded

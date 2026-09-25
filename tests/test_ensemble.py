@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hazure import DeviationScorer, DoubleRollingScorer, TimeSeries
+from hazure import TimeSeries
 from hazure.compose import Graph, Node
 from hazure.ensemble import (
     AndAggregator,
@@ -21,10 +21,12 @@ from hazure.ensemble import (
     ScoreAggregator,
     VoteAggregator,
 )
+from hazure.scorers import AsScorer, DeviationScorer
+from hazure.transformers import DoubleRollingAggregate
 from tests.conftest import BACKENDS, make_native
 
 if TYPE_CHECKING:
-    from hazure import BaseAggregator
+    from hazure import Aggregator
 
 NAN = np.nan
 
@@ -42,7 +44,7 @@ PAIRS = [
 ]
 
 
-def combine(aggregator: BaseAggregator, columns: Any) -> np.ndarray:
+def combine(aggregator: Aggregator, columns: Any) -> np.ndarray:
     """Aggregate a matrix whose columns are label series, returning the labels."""
     values = np.asarray(columns, dtype=float)
     time = np.datetime64("2024-01-01") + np.arange(values.shape[0]) * np.timedelta64(
@@ -294,7 +296,7 @@ def test_the_score_aggregator_combines_two_branches_of_a_graph() -> None:
     graph = Graph(
         [
             Node("deviation", DeviationScorer()),
-            Node("shift", DoubleRollingScorer(window=4)),
+            Node("shift", AsScorer(DoubleRollingAggregate(window=4, agg="median"))),
             Node(
                 "combined",
                 ScoreAggregator(),
@@ -302,7 +304,8 @@ def test_the_score_aggregator_combines_two_branches_of_a_graph() -> None:
             ),
         ]
     )
-    combined = graph.fit_detect(series)
+    # The combination is still a score, so the graph answers to score().
+    combined = graph.fit_score(series)
     assert len(combined) == 60
     assert combined.name == "anomaly"
     assert combined.idxmax() == index[40]
@@ -347,7 +350,7 @@ def test_clone_round_trips_every_aggregator_parameter() -> None:
     def half(labels: np.ndarray) -> np.ndarray:
         return labels[:, 0]
 
-    originals: list[BaseAggregator] = [
+    originals: list[Aggregator] = [
         OrAggregator(),
         AndAggregator(),
         VoteAggregator(threshold=0.8),

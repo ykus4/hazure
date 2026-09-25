@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hazure import Calibration, budget_threshold, tune_threshold
+from hazure.calibration import Calibration, budget_threshold, tune_threshold
 from hazure.events import Events, to_events
 from hazure.thresholds import FixedThreshold
 from tests.conftest import make_native
