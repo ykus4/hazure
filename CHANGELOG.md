@@ -6,7 +6,7 @@ Notable changes to `hazure`, newest first. The format follows
 version is 0, a minor bump may still break an interface, and the changelog will
 say so.
 
-## 0.2.0 — Unreleased
+## 0.2.0 — 2026-09-25
 
 A redesign of the public API and of the core. **This release breaks almost every
 import**, deliberately: the 0.1 layout had grown two parallel detector
