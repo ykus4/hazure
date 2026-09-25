@@ -18,11 +18,11 @@ would a score be that we should expect to see once in ten thousand samples?
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 
-from hazure import BaseThreshold
+from hazure._core import Threshold
 from hazure.thresholds.fence import _label, _require_a_bound, _valid
 
 if TYPE_CHECKING:
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
     from numpy.typing import NDArray
 
-    from hazure import TimeSeries
+    from hazure._core import TimeSeries
 
 
 __all__ = [
@@ -56,7 +56,7 @@ _SCAN_POINTS = 12
 _TOLERANCE = 1e-10
 
 
-class PotThreshold(BaseThreshold):
+class PotThreshold(Threshold):
     """Flag scores beyond a generalised Pareto fit to the tail of the training scores.
 
     Peaks-over-threshold: the training scores above their own ``level`` quantile
@@ -64,11 +64,12 @@ class PotThreshold(BaseThreshold):
     those excesses by maximum likelihood, and the fence is placed where that
     distribution says an exceedance has probability ``high``.
 
-    What this buys over :class:`~hazure.QuantileThreshold` is extrapolation. A
-    quantile of the training scores can never be placed beyond the largest one
-    observed, so asking for a one-in-a-million fence from ten thousand samples
-    quietly gives you the maximum instead. The fitted tail is a model, and can be
-    asked about probabilities no sample of that size could resolve.
+    What this buys over :class:`~hazure.thresholds.QuantileThreshold` is
+    extrapolation. A quantile of the training scores can never be placed beyond
+    the largest one observed, so asking for a one-in-a-million fence from ten
+    thousand samples quietly gives you the maximum instead. The fitted tail is a
+    model, and can be asked about probabilities no sample of that size could
+    resolve.
 
     What it costs is an assumption. The theorem behind it is asymptotic in
     ``level``, and the fit needs enough excesses to identify two parameters, so
@@ -117,8 +118,8 @@ class PotThreshold(BaseThreshold):
 
     See Also
     --------
-    hazure.QuantileThreshold : A quantile of the training scores, no model and no
-        extrapolation.
+    hazure.thresholds.QuantileThreshold : A quantile of the training scores, no
+        model and no extrapolation.
     update : Drive the same fence online, letting it move as scores arrive.
 
     Notes
@@ -215,6 +216,7 @@ class PotThreshold(BaseThreshold):
     # Retained only so that `update` can extend the fit; `run` needs none of it.
     _peaks: dict[str, NDArray[np.float64]]
     _seen: int
+    _persisted: ClassVar[tuple[str, ...]] = (*Threshold._persisted, "_peaks", "_seen")
 
     def __init__(
         self,
@@ -351,7 +353,7 @@ class PotThreshold(BaseThreshold):
         value
             One score, on the same scale as the scores this was fitted on.
             ``NaN`` is returned unchanged and leaves the fit untouched, the same
-            way :meth:`~hazure.BaseThreshold.apply` treats it.
+            way :meth:`~hazure.Threshold.apply` treats it.
 
         Returns
         -------

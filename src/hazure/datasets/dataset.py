@@ -20,7 +20,7 @@ __all__ = [
 class Dataset:
     """A series and the intervals somebody says are anomalous in it.
 
-    Ground truth is carried as :class:`~hazure.Events` rather than as a label
+    Ground truth is carried as :class:`~hazure.events.Events` rather than as a label
     column, because that is the form it arrives in and the form it means. An
     incident is a stretch of time; which samples fall inside it depends on the
     sampling interval, and a benchmark whose labels were snapped onto one axis

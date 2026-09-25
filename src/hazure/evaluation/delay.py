@@ -12,7 +12,7 @@ from hazure.events import Events, to_events
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-    from hazure import TimeSeries
+    from hazure._core import TimeSeries
 
 __all__ = [
     "detection_delay",

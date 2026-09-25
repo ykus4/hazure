@@ -1,10 +1,11 @@
-"""The five component types every algorithm in hazure is one of.
+"""The component types every algorithm in hazure is one of.
 
-    Scorer      TimeSeries -> continuous score   (how unusual is each point?)
-    Threshold   score       -> binary labels     (where do we draw the line?)
-    Detector    a Scorer and Threshold together, ready to use
-    Aggregator  several label series -> one      (ensembling)
-    Transformer TimeSeries -> TimeSeries         (feature engineering)
+    Scorer       TimeSeries -> continuous score   (how unusual is each point?)
+    Threshold    score       -> binary labels     (where do we draw the line?)
+    Transformer  TimeSeries -> TimeSeries         (feature engineering)
+    Aggregator   several columns -> one           (ensembling)
+
+and :class:`~hazure.Detector`, which is a scorer and a threshold held together.
 
 Asking "how unusual is this point" and asking "is that unusual enough to report"
 are different questions, and hazure keeps them apart. One threshold policy is
@@ -23,28 +24,32 @@ column.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeVar
 
-from hazure._core.config import Configurable
+from hazure._core.fanout import check_columns, fit_columns, join_all, run_columns
+from hazure._core.persist import Persistent
 from hazure._core.series import TimeSeries
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
 __all__ = [
-    "BaseAggregator",
-    "BaseDetector",
-    "BaseScorer",
-    "BaseThreshold",
-    "BaseTransformer",
+    "Aggregator",
     "Component",
+    "OutputKind",
+    "Scorer",
+    "Threshold",
+    "Transformer",
 ]
 
 _S = TypeVar("_S", bound="Component")
 
+#: What a component emits: continuous scores, binary labels, or a new series.
+OutputKind = Literal["score", "labels", "series"]
 
-class Component(Configurable, ABC):
-    """Shared machinery for scorers, thresholds, transformers and detectors.
+
+class Component(Persistent, ABC):
+    """Shared machinery for every component.
 
     Subclasses implement :meth:`_compute`, and :meth:`_learn` if they need
     training. Everything else — accepting any backend, validating the time axis,
@@ -65,6 +70,17 @@ class Component(Configurable, ABC):
     multivariate: ClassVar[bool] = False
     trainable: ClassVar[bool] = True
 
+    #: What :meth:`run` emits; see :attr:`output_kind`.
+    _output: ClassVar[OutputKind]
+    #: The verb that applies this component to native data, for messages.
+    _verb: ClassVar[str] = "run"
+
+    _persisted: ClassVar[tuple[str, ...]] = (
+        "_fitted",
+        "_feature_names",
+        "_column_models",
+    )
+
     # Declared at class level rather than set in ``__init__`` so that a subclass
     # defining its own constructor cannot break the component by forgetting to
     # call super(). Fitting rebinds these on the instance.
@@ -76,7 +92,7 @@ class Component(Configurable, ABC):
     # -- hooks for subclasses ----------------------------------------------
 
     def _learn(self, ts: TimeSeries) -> None:
-        """Learn from one series, which is univariate unless ``multivariate``.
+        """Learn from one series, which is univariate unless multivariate.
 
         The default does nothing, which is correct for untrainable components.
 
@@ -93,7 +109,7 @@ class Component(Configurable, ABC):
         Parameters
         ----------
         ts
-            Input, already validated. Univariate unless :attr:`multivariate`.
+            Input, already validated. Univariate unless :attr:`is_multivariate`.
 
         Returns
         -------
@@ -101,12 +117,37 @@ class Component(Configurable, ABC):
             The result, on the same time axis as ``ts``.
         """
 
+    # -- description ---------------------------------------------------------
+
+    @property
+    def is_multivariate(self) -> bool:
+        """True when this instance needs every column at once.
+
+        Usually the class-level :attr:`multivariate`. A component assembled from
+        others — a detector, a pipeline — answers for its parts instead.
+        """
+        return type(self).multivariate
+
+    @property
+    def is_trainable(self) -> bool:
+        """True when this instance has something to learn.
+
+        Usually the class-level :attr:`trainable`. A component assembled from
+        others is trainable when any of its parts is.
+        """
+        return type(self).trainable
+
+    @property
+    def output_kind(self) -> OutputKind:
+        """What this component emits: ``"score"``, ``"labels"`` or ``"series"``."""
+        return self._output
+
     # -- state --------------------------------------------------------------
 
     @property
     def fitted(self) -> bool:
         """True once :meth:`fit` has run, or if the component needs no fitting."""
-        return self._fitted or not self.trainable
+        return self._fitted or not self.is_trainable
 
     @property
     def feature_names(self) -> tuple[str, ...] | None:
@@ -134,15 +175,11 @@ class Component(Configurable, ABC):
         """
         ts = TimeSeries.from_any(data)
         self._feature_names = ts.columns
-
-        if self.multivariate or ts.is_univariate:
+        if self.is_multivariate or ts.is_univariate:
             self._column_models = None
             self._learn(ts)
         else:
-            self._column_models = {name: self.clone() for name in ts.columns}
-            for name, model in self._column_models.items():
-                model.fit(ts.select(name))
-
+            self._column_models = fit_columns(self, ts)
         self._fitted = True
         return self
 
@@ -151,9 +188,9 @@ class Component(Configurable, ABC):
     def run(self, ts: TimeSeries) -> TimeSeries:
         """Apply this component to a :class:`TimeSeries`, returning one.
 
-        This is the composition entry point: pipelines and compound detectors
-        chain components through ``run`` so intermediate results never make a
-        round trip through a native dataframe.
+        This is the composition entry point: pipelines and detectors chain
+        components through ``run`` so intermediate results never make a round
+        trip through a native dataframe.
 
         Parameters
         ----------
@@ -179,61 +216,16 @@ class Component(Configurable, ABC):
                 f"or use fit_{self._verb}()."
             )
             raise RuntimeError(msg)
-
-        ts = self._check_columns(ts)
-        if self.multivariate or ts.is_univariate:
+        ts = check_columns(self, ts)
+        if self.is_multivariate or ts.is_univariate:
             return self._compute(ts)
-        return _combine(self._named_part(name, ts) for name in ts.columns)
-
-    def _named_part(self, name: str, ts: TimeSeries) -> TimeSeries:
-        """Apply the copy responsible for one column, and label its output."""
-        model = self if self._column_models is None else self._column_models[name]
-        result = model._compute(ts.select(name))
-        if result.columns == (name,):
-            return result
-        # A component that widens one column into several (lagging, say) would
-        # otherwise collide across columns, so qualify the names.
-        return result.wrap(
-            result.values, [f"{name}_{column}" for column in result.columns]
-        )
-
-    def _check_columns(self, ts: TimeSeries) -> TimeSeries:
-        """Reconcile the input's columns with the ones training saw."""
-        learned = self._feature_names
-        if learned is None or not self._fitted:
-            return ts
-
-        if self._column_models is not None:
-            missing = [c for c in ts.columns if c not in self._column_models]
-            if missing:
-                msg = (
-                    f"{type(self).__name__} was fitted on {list(learned)} and "
-                    f"has nothing trained for {missing}."
-                )
-                raise ValueError(msg)
-            return ts
-
-        if self.multivariate:
-            missing = [c for c in learned if c not in ts.columns]
-            if missing:
-                msg = (
-                    f"{type(self).__name__} was fitted on {list(learned)} but "
-                    f"the input is missing {missing}."
-                )
-                raise ValueError(msg)
-            # Reorder to the training layout; extra columns are dropped, since
-            # the model has no coefficients for them.
-            return ts.select(learned)
-        return ts
+        return run_columns(self, self._column_models, ts)
 
     # -- native-facing plumbing --------------------------------------------
 
-    _verb: ClassVar[str] = "run"
-
     def _emit(self, data: Any) -> Any:
         """Apply to native input and return native output of the same flavour."""
-        ts = TimeSeries.from_any(data)
-        return self.run(ts).to_native()
+        return self.run(TimeSeries.from_any(data)).to_native()
 
     def _fit_emit(self, data: Any) -> Any:
         """Fit on native input, then apply to it."""
@@ -241,15 +233,16 @@ class Component(Configurable, ABC):
         return self.fit(ts).run(ts).to_native()
 
 
-class BaseScorer(Component):
+class Scorer(Component):
     """Turns a series into a continuous anomaly score.
 
     A score is "how unusual is this point", on whatever scale the algorithm
-    works in. Higher means more unusual. Scores are useful on their own for
-    ranking, and become labels when passed through a
-    :class:`BaseThreshold`.
+    works in. Higher means more unusual — or, for a signed score, further from
+    normal in the direction of its sign. Scores are useful on their own for
+    ranking, and become labels when passed through a :class:`Threshold`.
     """
 
+    _output: ClassVar[OutputKind] = "score"
     _verb: ClassVar[str] = "score"
 
     def score(self, data: Any) -> Any:
@@ -283,7 +276,7 @@ class BaseScorer(Component):
         return self._fit_emit(data)
 
 
-class BaseThreshold(Component):
+class Threshold(Component):
     """Turns continuous scores into binary labels.
 
     Kept separate from scoring so one policy — a quantile, an inter-quartile
@@ -291,6 +284,7 @@ class BaseThreshold(Component):
     without touching the scorer.
     """
 
+    _output: ClassVar[OutputKind] = "labels"
     _verb: ClassVar[str] = "apply"
 
     def apply(self, scores: Any) -> Any:
@@ -299,7 +293,7 @@ class BaseThreshold(Component):
         Parameters
         ----------
         scores
-            Continuous scores, as produced by a :class:`BaseScorer`.
+            Continuous scores, as produced by a :class:`Scorer`.
 
         Returns
         -------
@@ -315,7 +309,7 @@ class BaseThreshold(Component):
         Parameters
         ----------
         scores
-            Continuous scores, as produced by a :class:`BaseScorer`.
+            Continuous scores, as produced by a :class:`Scorer`.
 
         Returns
         -------
@@ -325,13 +319,16 @@ class BaseThreshold(Component):
         return self._fit_emit(scores)
 
 
-class BaseTransformer(Component):
+class Transformer(Component):
     """Turns a series into another series.
 
     Feature engineering: rolling aggregates, lagging, seasonal decomposition.
-    Transformers sit upstream of scorers in a pipeline.
+    Transformers sit upstream of scorers in a pipeline, and one whose output
+    measures how unusual each point is can be used as a scorer through
+    :class:`~hazure.scorers.AsScorer`.
     """
 
+    _output: ClassVar[OutputKind] = "series"
     _verb: ClassVar[str] = "transform"
 
     def transform(self, data: Any) -> Any:
@@ -365,73 +362,20 @@ class BaseTransformer(Component):
         return self._fit_emit(data)
 
 
-class BaseDetector(Component):
-    """Turns a series directly into binary anomaly labels.
+class Aggregator(Component):
+    """Combines the columns of a frame — several verdicts — into one.
 
-    Most detectors are a :class:`BaseScorer` paired with a
-    :class:`BaseThreshold`; this is the type that pairing presents itself as, so
-    that the common case stays a single object with familiar parameters.
+    An aggregator is an ordinary component that happens to need every column at
+    once and to have nothing to learn, so it runs anywhere a component does: at
+    the end of a :class:`~hazure.Graph` that joins several detectors, or after a
+    step in a :class:`~hazure.Pipeline` that widens one series into several.
+    :meth:`aggregate` is the convenience for combining series you already hold.
     """
 
-    _verb: ClassVar[str] = "detect"
-
-    def detect(self, data: Any) -> Any:
-        """Detect anomalies in ``data``.
-
-        Parameters
-        ----------
-        data
-            Any supported dataframe, series, or :class:`TimeSeries`.
-
-        Returns
-        -------
-        Any
-            Labels as 1.0 for anomalous, 0.0 for normal and NaN for unknown, in
-            the same flavour as the input.
-        """
-        return self._emit(data)
-
-    def fit_detect(self, data: Any) -> Any:
-        """Fit on ``data`` and detect anomalies in it in one step.
-
-        This is the usual entry point for unsupervised use, where the same
-        series both defines "normal" and is searched for departures from it.
-
-        Parameters
-        ----------
-        data
-            Any supported dataframe, series, or :class:`TimeSeries`.
-
-        Returns
-        -------
-        Any
-            Labels, in the same flavour as the input.
-        """
-        return self._fit_emit(data)
-
-
-class BaseAggregator(Configurable, ABC):
-    """Combines several label series into one.
-
-    Aggregators sit outside the fit/apply hierarchy because they have nothing to
-    learn and no single input: they take the outputs of several detectors and
-    reduce them, which is how ensembling and multi-condition rules are built.
-    """
-
-    @abstractmethod
-    def _combine(self, ts: TimeSeries) -> TimeSeries:
-        """Reduce a frame of label columns to a single label column.
-
-        Parameters
-        ----------
-        ts
-            One column per input label series, aligned on a shared time axis.
-
-        Returns
-        -------
-        TimeSeries
-            A single-column series of labels.
-        """
+    multivariate: ClassVar[bool] = True
+    trainable: ClassVar[bool] = False
+    _output: ClassVar[OutputKind] = "labels"
+    _verb: ClassVar[str] = "aggregate"
 
     def aggregate(self, *label_sets: Any, names: Iterable[str] | None = None) -> Any:
         """Combine label series.
@@ -483,16 +427,6 @@ class BaseAggregator(Configurable, ABC):
                 part.wrap(part.values, [label]) if part.is_univariate else part
                 for part, label in zip(parts, labels, strict=True)
             ]
-            combined = _combine(renamed)
+            combined = join_all(renamed)
 
-        return self._combine(combined).to_native()
-
-
-def _combine(parts: Iterable[TimeSeries]) -> TimeSeries:
-    """Join an iterable of series into one, aligning on the time axis."""
-    materialised = list(parts)
-    if not materialised:  # pragma: no cover - callers always pass at least one
-        msg = "Nothing to combine."
-        raise ValueError(msg)
-    first, *rest = materialised
-    return first.join(*rest)
+        return self.run(combined).to_native()

@@ -6,7 +6,71 @@ Notable changes to `hazure`, newest first. The format follows
 version is 0, a minor bump may still break an interface, and the changelog will
 say so.
 
-## Unreleased
+## 0.2.0 — 2026-09-25
+
+A redesign of the public API and of the core. **This release breaks almost every
+import**, deliberately: the 0.1 layout had grown two parallel detector
+hierarchies and two names for most scores, and a pre-1.0 minor release is the
+cheapest place to stop that. The algorithms, their defaults and their results are
+unchanged; what changed is how they are assembled and where they are imported
+from. A migration table follows the list.
+
+### Changed
+
+- **There is one detector class.** `Detector(scorer, threshold)` replaces
+  `ScoreDetector`, `SignedScoreDetector`, `MultivariateScoreDetector`,
+  `MultivariateSignedScoreDetector` and the 22 named detector classes. The
+  ready-made detectors are now functions in `hazure.detectors` returning a
+  `Detector` — `detectors.spike(window=24)` rather than `SpikeDetector(window=24)`
+  — so a ready-made detector prints what it is made of, and its scorer and
+  threshold are real parameters rather than private state rebuilt on every fit.
+- **Direction is a threshold concern.** `SignedThreshold(threshold, side=...)`
+  judges the magnitude of a signed score and keeps the requested direction; it is
+  what the `side=` argument of the ready-made detectors builds, and it composes
+  with any threshold.
+- **A transformer whose output is a score is used as one through `AsScorer`.**
+  `RollingAggregateScorer`, `DoubleRollingScorer`, `SeasonalResidualScorer`,
+  `PcaReconstructionErrorScorer` and `RegressionResidualScorer` are gone; wrap
+  `RollingAggregate`, `DoubleRollingAggregate`, `SeasonalDecomposition`,
+  `PcaReconstructionError` or `RegressionResidual` instead. Their fitted
+  attributes are on `.transformer` — `scorer.transformer.seasonal_`.
+- **Modules are named for what they hold.** `hazure.scorers`, `hazure.thresholds`,
+  `hazure.transformers` and `hazure.detectors` replace `hazure.scoring`,
+  `hazure.features`, `hazure.detection` and `hazure.methods`, whose contents were
+  split by history rather than by kind.
+- **The top-level namespace holds the types and nothing else.** `hazure` exports
+  `TimeSeries`, `Component`, `Scorer`, `Threshold`, `Detector`, `Transformer`,
+  `Aggregator`, `Pipeline`, `Graph`, `Node` and `Stream`, down from over a
+  hundred names. The base classes lost their `Base` prefix. The window engine
+  (`rolling`, `double_rolling`, `parse_duration`, `AGGREGATIONS`) moved to
+  `hazure.transformers`.
+- **Nested parameters are reachable by name.** `get_params()` reports
+  `scorer__window`, `threshold__factor` and, in a `Pipeline` or `Graph`,
+  `step__parameter`; `set_params` accepts the same names. `get_params(deep=False)`
+  is available for `sklearn.base.clone`.
+- **An aggregator is an ordinary component.** It runs anywhere a component does,
+  including at the end of a `Pipeline` whose previous step produced several
+  columns, and no longer needs special-casing in `Graph`. `ScoreAggregator`
+  reports its output as a score, so a graph ending in it answers to `score()`.
+- **`output_kind` names what a component emits** — `"score"`, `"labels"` or
+  `"series"` — rather than the verb that applies it. Composites derive it from
+  their last part.
+- **Whether a component needs fitting, or every column at once, is asked of the
+  instance.** `is_trainable` and `is_multivariate` answer for a component
+  assembled from others — a detector is trainable when either part is — so a
+  `Pipeline` of untrainable steps no longer demands a `fit()`.
+- **What `to_dict` stores is decided by convention.** Parameters, fitted
+  attributes (public names ending in `_`), and private state a class declares in
+  `_persisted`; caches are no longer written out. `Component.from_dict` is the
+  generic loader.
+- `RegressionResidual` copies the regressor it is given at fit time, as the
+  scorer built on it always did, so the object passed stays unfitted.
+- Internal refactoring throughout: the graph walk, the plotting entry point and
+  the dispatch in `hazure.evaluation` are each described in one place rather than
+  several, and the rules for reading a gap — in observations and in labels — now
+  live together in one module. Modules inside the package import from
+  `hazure._core` or their own subpackage, never from `hazure` itself, and a test
+  keeps it that way.
 
 ### Fixed
 
@@ -16,12 +80,40 @@ say so.
   series again. Panels now carry the series they came from, and names no longer
   have to be unique across the two.
 
-### Changed
+### Migrating from 0.1
 
-- Internal refactoring throughout, with no change to any public interface: the
-  graph walk, the plotting entry point and the dispatch in `hazure.evaluation`
-  are each described in one place rather than several, and the rules for reading
-  a gap — in observations and in labels — now live together in one module.
+| 0.1 | 0.2 |
+| --- | --- |
+| `from hazure import SpikeDetector` | `from hazure import detectors` |
+| `SpikeDetector(window=24)` | `detectors.spike(window=24)` |
+| `LevelShiftDetector`, `VolatilityShiftDetector` | `detectors.level_shift`, `detectors.volatility_shift` |
+| `SeasonalDetector`, `AutoregressionDetector` | `detectors.seasonal`, `detectors.autoregression` |
+| `IqrDetector`, `QuantileDetector`, `EsdDetector` | `detectors.iqr`, `detectors.quantile`, `detectors.esd` |
+| `ThresholdDetector(low, high)` | `detectors.limits(low, high)` |
+| `RegressionDetector`, `PcaDetector` | `detectors.regression`, `detectors.pca` |
+| `OutlierDetector`, `MinClusterDetector` | `detectors.outlier`, `detectors.min_cluster` |
+| `HampelDetector`, `RollingQuantileDetector` | `detectors.hampel`, `detectors.rolling_quantile` |
+| `SpectralResidualDetector`, `StlDetector`, `MstlDetector` | `detectors.spectral_residual`, `detectors.stl`, `detectors.mstl` |
+| `PeltDetector`, `RupturesDetector` | `detectors.pelt`, `detectors.ruptures` |
+| `MatrixProfileDetector`, `DampDetector` | `detectors.matrix_profile`, `detectors.damp` |
+| `ScoreDetector(scorer, threshold)` | `Detector(scorer, threshold)` |
+| `SignedScoreDetector(scorer, threshold, side=s)` | `Detector(scorer, SignedThreshold(threshold, side=s))` |
+| `RollingAggregateScorer(window, agg, q=q)` | `AsScorer(RollingAggregate(window, agg, agg_params={"q": q}))` |
+| `DoubleRollingScorer(window, diff=d)` | `AsScorer(DoubleRollingAggregate(window, agg="median", diff=d))` |
+| `SeasonalResidualScorer(period)` | `AsScorer(SeasonalDecomposition(period))` |
+| `PcaReconstructionErrorScorer(k)` | `AsScorer(PcaReconstructionError(k))` |
+| `RegressionResidualScorer(target)` | `AsScorer(RegressionResidual(target))` |
+| `hazure.scoring`, `hazure.methods` scorers | `hazure.scorers` |
+| `hazure.features` | `hazure.transformers` |
+| `BaseScorer`, `BaseThreshold`, `BaseTransformer`, `BaseAggregator` | `Scorer`, `Threshold`, `Transformer`, `Aggregator` |
+| `BaseAggregator._combine` | `Aggregator._compute` |
+| `detector.window`, `detector.factor` | `detector.scorer.transformer.window`, `detector.threshold.threshold.factor`, or `get_params()["scorer__transformer__window"]` |
+| `Configurable.from_dict(payload)` | `Component.from_dict(payload)` |
+| `hazure.rolling`, `hazure.parse_duration` | `hazure.transformers.rolling`, `hazure.transformers.parse_duration` |
+
+`DoubleRollingScorer` summarised each window with the median by default, and
+`DoubleRollingAggregate` with the mean, so pass `agg="median"` when migrating to
+keep the same scores. Everything else in the table is a rename.
 
 ## 0.1.0 — 2026-07-31
 

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from hazure import BaseThreshold
+from hazure._core import Threshold
 from hazure.thresholds.fence import (
     MAD_SCALE,
     FactorSpec,
@@ -18,7 +18,7 @@ from hazure.thresholds.fence import (
 )
 
 if TYPE_CHECKING:
-    from hazure import TimeSeries
+    from hazure._core import TimeSeries
 
 
 __all__ = [
@@ -26,7 +26,7 @@ __all__ = [
 ]
 
 
-class MadThreshold(BaseThreshold):
+class MadThreshold(Threshold):
     """Flag scores far from the training median, in units of the MAD.
 
     The median absolute deviation is the median of ``|x - median(x)|``. Scaled by

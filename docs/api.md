@@ -1,8 +1,8 @@
 # API reference
 
-Every public name, grouped by the module it lives in. The five base classes, the
-`TimeSeries` boundary and the window engine are importable straight from
-`hazure`; everything else from the module listed here.
+Every public name, grouped by the module it lives in. The component types, the
+`TimeSeries` boundary and the structures that combine components are importable
+straight from `hazure`; everything else from the module listed here.
 
 ## `hazure`
 
@@ -11,27 +11,25 @@ Every public name, grouped by the module it lives in. The five base classes, the
       members:
         - TimeSeries
         - Component
-        - BaseScorer
-        - BaseThreshold
-        - BaseDetector
-        - BaseTransformer
-        - BaseAggregator
-        - rolling
-        - double_rolling
-        - parse_duration
+        - Scorer
+        - Threshold
+        - Detector
+        - Transformer
+        - Aggregator
 
-## `hazure.detection`
+## `hazure.detectors`
 
-Ready-made detectors: a series in, binary labels out.
+Ready-made detectors, one function per kind of anomaly. Each returns a
+`Detector`.
 
-::: hazure.detection
+::: hazure.detectors
 
-## `hazure.scoring`
+## `hazure.scorers`
 
-The scorers those detectors are built from. A score is worth having on its own,
-for ranking.
+Continuous scores: how unusual each point is. Worth having on their own, for
+ranking, and paired with a threshold to detect.
 
-::: hazure.scoring
+::: hazure.scorers
 
 ## `hazure.thresholds`
 
@@ -39,15 +37,17 @@ Where to draw the line, independently of what produced the score.
 
 ::: hazure.thresholds
 
-## `hazure.features`
+## `hazure.transformers`
 
-Transformers: series in, series out. These sit upstream of a scorer.
+Series in, series out. These sit upstream of a scorer, or become one through
+`AsScorer`. The rolling-window engine they are built on is exported here too.
 
-::: hazure.features
+::: hazure.transformers
 
 ## `hazure.ensemble`
 
-Aggregators, for combining several detectors' verdicts.
+Aggregators, for combining several detectors' verdicts or several scorers'
+scores.
 
 ::: hazure.ensemble
 
@@ -84,14 +84,6 @@ Driving a fitted component one observation at a time, for a series that is still
 being produced.
 
 ::: hazure.streaming
-
-## `hazure.methods`
-
-Further method families: spectral residual, Hampel filtering and rolling
-quantile bands, change-point segmentation, matrix-profile discords, and
-STL / MSTL residuals.
-
-::: hazure.methods
 
 ## `hazure.datasets`
 

@@ -21,9 +21,9 @@ import pandas as pd
 import pytest
 from scipy.stats import genpareto
 
-from hazure import PotThreshold, ScoreDetector, TimeSeries
-from hazure._core import Configurable
-from hazure.scoring import DeviationScorer
+from hazure import Component, Detector, TimeSeries
+from hazure.scorers import DeviationScorer
+from hazure.thresholds import PotThreshold
 from hazure.thresholds.pot import (
     _fence,
     _fit_gpd,
@@ -488,7 +488,7 @@ def test_a_restored_pot_threshold_can_still_be_updated() -> None:
 def test_a_fitted_pot_threshold_round_trips_through_the_generic_loader() -> None:
     ts = scores(exponential())
     fitted = PotThreshold(high=1e-4).fit(ts)
-    restored = Configurable.from_dict(fitted.to_dict())
+    restored = Component.from_dict(fitted.to_dict())
     assert isinstance(restored, PotThreshold)
     assert restored.high_ == fitted.high_
 
@@ -537,7 +537,7 @@ def test_a_pot_threshold_works_inside_a_score_detector() -> None:
         {"x": values},
         index=pd.date_range("2024-01-01", periods=4000, freq="h", name="time"),
     )
-    detector = ScoreDetector(DeviationScorer(), PotThreshold(high=1e-4))
+    detector = Detector(DeviationScorer(), PotThreshold(high=1e-4))
     labels = detector.fit_detect(frame)
     assert list(np.flatnonzero(labels["x"].to_numpy() == 1.0)) == [1234]
 

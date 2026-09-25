@@ -12,21 +12,26 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hazure._core import (
-    BaseAggregator,
-    BaseDetector,
-    BaseScorer,
-    BaseThreshold,
-    BaseTransformer,
-    Configurable,
+from hazure import (
+    Aggregator,
+    Component,
+    Detector,
+    Graph,
+    Node,
+    Pipeline,
+    Scorer,
+    Threshold,
     TimeSeries,
+    Transformer,
+    detectors,
 )
+from hazure._core import Configurable
 from tests.conftest import BACKENDS, make_native
 
 # -- test doubles -----------------------------------------------------------
 
 
-class Doubler(BaseTransformer):
+class Doubler(Transformer):
     """Multiplies by a factor. Untrainable, so usable straight away."""
 
     trainable: ClassVar[bool] = False
@@ -38,7 +43,7 @@ class Doubler(BaseTransformer):
         return ts.wrap(ts.values * self.factor)
 
 
-class DeviationScorer(BaseScorer):
+class DeviationScorer(Scorer):
     """Scores each point by its distance from the training mean."""
 
     def __init__(self, absolute: bool = True) -> None:
@@ -52,7 +57,7 @@ class DeviationScorer(BaseScorer):
         return ts.wrap(np.abs(deviation) if self.absolute else deviation)
 
 
-class OverMean(BaseThreshold):
+class OverMean(Threshold):
     """Flags scores above the training mean times a factor."""
 
     def __init__(self, factor: float = 1.0) -> None:
@@ -65,21 +70,7 @@ class OverMean(BaseThreshold):
         return ts.wrap((ts.values[:, 0] > self.cutoff_).astype(float))
 
 
-class Pairing(BaseDetector):
-    """A scorer and a threshold presented as one detector."""
-
-    def __init__(self, scorer: BaseScorer, threshold: BaseThreshold) -> None:
-        self.scorer = scorer
-        self.threshold = threshold
-
-    def _learn(self, ts: TimeSeries) -> None:
-        self.threshold.fit(self.scorer.fit(ts).run(ts))
-
-    def _compute(self, ts: TimeSeries) -> TimeSeries:
-        return self.threshold.run(self.scorer.run(ts))
-
-
-class Widener(BaseTransformer):
+class Widener(Transformer):
     """Turns one column into two, to exercise output naming under fan-out."""
 
     trainable: ClassVar[bool] = False
@@ -89,7 +80,7 @@ class Widener(BaseTransformer):
         return ts.wrap(stacked, ["up", "down"])
 
 
-class Total(BaseTransformer):
+class Total(Transformer):
     """Sums every column, so it genuinely needs them all at once."""
 
     multivariate: ClassVar[bool] = True
@@ -99,10 +90,10 @@ class Total(BaseTransformer):
         return ts.wrap(np.nansum(ts.values, axis=1), ["total"])
 
 
-class AnyOf(BaseAggregator):
+class AnyOf(Aggregator):
     """Flags a point when any input flagged it."""
 
-    def _combine(self, ts: TimeSeries) -> TimeSeries:
+    def _compute(self, ts: TimeSeries) -> TimeSeries:
         return ts.wrap(np.nanmax(ts.values, axis=1), ["anomaly"])
 
 
@@ -143,7 +134,7 @@ def test_a_threshold_can_be_swapped_without_touching_the_scorer(
 
 
 def test_a_detector_pairs_a_scorer_with_a_threshold(stepped: pd.Series) -> None:
-    flags = Pairing(DeviationScorer(), OverMean()).fit_detect(stepped)
+    flags = Detector(DeviationScorer(), OverMean()).fit_detect(stepped)
     assert set(flags.unique()) <= {0.0, 1.0}
     assert flags.loc[stepped.index[15:]].eq(1.0).all()
     assert flags.loc[stepped.index[:15]].eq(0.0).all()
@@ -282,7 +273,7 @@ def test_a_trainable_component_must_be_fitted_first(stepped: pd.Series) -> None:
 
 def test_the_error_names_the_shortcut_method(stepped: pd.Series) -> None:
     with pytest.raises(RuntimeError, match="fit_detect"):
-        Pairing(DeviationScorer(), OverMean()).detect(stepped)
+        Detector(DeviationScorer(), OverMean()).detect(stepped)
 
 
 def test_an_untrainable_component_works_without_fitting(stepped: pd.Series) -> None:
@@ -355,7 +346,7 @@ def test_set_params_rejects_an_unknown_name() -> None:
 
 def test_clone_preserves_every_parameter_including_nested_ones() -> None:
     """Every setting survives a clone, including those of nested components."""
-    original = Pairing(DeviationScorer(absolute=False), OverMean(factor=2.5))
+    original = Detector(DeviationScorer(absolute=False), OverMean(factor=2.5))
     copy = original.clone()
 
     assert copy.scorer.absolute is False
@@ -372,7 +363,7 @@ def test_clone_produces_an_unfitted_copy(stepped: pd.Series) -> None:
 
 
 def test_clone_does_not_share_nested_components() -> None:
-    original = Pairing(DeviationScorer(), OverMean())
+    original = Detector(DeviationScorer(), OverMean())
     copy = original.clone()
     assert copy.scorer is not original.scorer
     assert copy.threshold is not original.threshold
@@ -384,8 +375,8 @@ def test_repr_omits_defaults() -> None:
 
 
 def test_repr_shows_required_parameters() -> None:
-    rendered = repr(Pairing(DeviationScorer(), OverMean()))
-    assert rendered.startswith("Pairing(scorer=DeviationScorer()")
+    rendered = repr(Detector(DeviationScorer(), OverMean()))
+    assert rendered.startswith("Detector(scorer=DeviationScorer()")
 
 
 def test_a_star_args_constructor_is_rejected() -> None:
@@ -417,39 +408,29 @@ def _fittable() -> list[tuple[str, Any]]:
     Built here rather than at import time so a missing optional extra cannot
     stop this module from being collected.
     """
-    from hazure.detection import (
-        AutoregressionDetector,
-        EsdDetector,
-        IqrDetector,
-        LevelShiftDetector,
-        PcaDetector,
-        RegressionDetector,
-        SeasonalDetector,
-        SpikeDetector,
-    )
-    from hazure.features import SeasonalDecomposition, StandardScale
-    from hazure.methods import HampelDetector, PeltDetector, SpectralResidualDetector
-    from hazure.scoring import DeviationScorer as RealDeviationScorer
+
+    from hazure.scorers import DeviationScorer as RealDeviationScorer
     from hazure.thresholds import EsdThreshold, IqrThreshold, MadThreshold
+    from hazure.transformers import SeasonalDecomposition, StandardScale
 
     return [
-        ("iqr", IqrDetector()),
-        ("esd", EsdDetector()),
-        ("spike", SpikeDetector(window=12)),
-        ("level shift", LevelShiftDetector(window=12)),
-        ("seasonal", SeasonalDetector(period=24)),
-        ("autoregression", AutoregressionDetector(n_steps=2)),
+        ("iqr", detectors.iqr()),
+        ("esd", detectors.esd()),
+        ("spike", detectors.spike(window=12)),
+        ("level shift", detectors.level_shift(window=12)),
+        ("seasonal", detectors.seasonal(period=24)),
+        ("autoregression", detectors.autoregression(n_steps=2)),
         ("deviation", RealDeviationScorer(center="mean", scale="mad")),
         ("decomposition", SeasonalDecomposition(period=24, trend=True)),
         ("standard scale", StandardScale()),
         ("iqr threshold", IqrThreshold(factor=(None, 2.0))),
         ("mad threshold", MadThreshold()),
         ("esd threshold", EsdThreshold(alpha=0.01)),
-        ("hampel", HampelDetector(window=11)),
-        ("pelt", PeltDetector()),
-        ("spectral residual", SpectralResidualDetector()),
-        ("pca", PcaDetector(k=1)),
-        ("regression", RegressionDetector(target="b")),
+        ("hampel", detectors.hampel(window=11)),
+        ("pelt", detectors.pelt()),
+        ("spectral residual", detectors.spectral_residual()),
+        ("pca", detectors.pca(k=1)),
+        ("regression", detectors.regression(target="b")),
     ]
 
 
@@ -473,14 +454,14 @@ def test_a_fitted_component_survives_a_round_trip_through_json(
     import json
 
     # Multivariate components need two columns to have a relationship to model.
-    ts = _seasonal_frame(2 if component.multivariate else 1)
+    ts = _seasonal_frame(2 if component.is_multivariate else 1)
     fitted = component.fit(ts)
     expected = fitted.run(ts)
 
     restored = type(component).from_dict(json.loads(json.dumps(fitted.to_dict())))
     actual = restored.run(ts)
 
-    assert restored.get_params() == fitted.get_params(), name
+    assert repr(restored) == repr(fitted), name
     assert actual.columns == expected.columns, name
     assert np.array_equal(actual.values, expected.values, equal_nan=True), name
 
@@ -488,11 +469,9 @@ def test_a_fitted_component_survives_a_round_trip_through_json(
 def test_a_restored_component_needs_no_second_fit() -> None:
     import json
 
-    from hazure.detection import SeasonalDetector
-
     ts = _seasonal_frame()
-    fitted = SeasonalDetector(period=24).fit(ts)
-    restored = SeasonalDetector.from_dict(json.loads(json.dumps(fitted.to_dict())))
+    fitted = detectors.seasonal(period=24).fit(ts)
+    restored = Detector.from_dict(json.loads(json.dumps(fitted.to_dict())))
     # run() raises on an unfitted trainable component, so this passing is the
     # assertion: the fitted state came back, not just the parameters.
     assert restored.run(ts).n_rows == ts.n_rows
@@ -504,16 +483,12 @@ def test_an_unfitted_component_carries_only_its_parameters() -> None:
 
 
 def test_serialising_keeps_a_window_pair_a_pair() -> None:
-    from hazure.detection import LevelShiftDetector
-
-    restored = LevelShiftDetector.from_dict(
-        LevelShiftDetector(window=(6, 12)).to_dict()
-    )
-    assert restored.window == (6, 12)
+    restored = Detector.from_dict(detectors.level_shift(window=(6, 12)).to_dict())
+    assert restored.scorer.transformer.window == (6, 12)
 
 
 def test_serialising_keeps_an_arrays_dtype() -> None:
-    from hazure.methods import PeltScorer
+    from hazure.scorers import PeltScorer
 
     stored = PeltScorer().fit(_seasonal_frame()).to_dict()
     # int64 nanosecond timestamps read back as float64 would lose their last
@@ -522,7 +497,7 @@ def test_serialising_keeps_an_arrays_dtype() -> None:
 
 
 def test_a_model_hazure_did_not_build_cannot_be_serialised() -> None:
-    from hazure.scoring import OutlierScorer
+    from hazure.scorers import OutlierScorer
 
     class Rejector:
         def fit_predict(self, X: Any) -> Any:
@@ -536,30 +511,30 @@ def test_a_model_hazure_did_not_build_cannot_be_serialised() -> None:
 def test_a_payload_may_not_name_a_class_outside_hazure() -> None:
     payload = {"type": "builtins.dict", "state": {}}
     with pytest.raises(ValueError, match="outside hazure"):
-        Configurable.from_dict(payload)
+        Component.from_dict(payload)
 
 
 def test_a_payload_may_not_name_something_that_is_not_a_component() -> None:
     payload = {"type": "hazure.TimeSeries", "state": {}}
     with pytest.raises(TypeError, match="not a hazure component"):
-        Configurable.from_dict(payload)
+        Component.from_dict(payload)
 
 
 def test_a_payload_may_not_name_a_class_that_no_longer_exists() -> None:
     payload = {"type": "hazure.detection.spike.RemovedDetector", "state": {}}
     with pytest.raises(ValueError, match="does not exist"):
-        Configurable.from_dict(payload)
+        Component.from_dict(payload)
 
 
 def test_from_dict_refuses_to_hand_back_a_different_component() -> None:
-    from hazure.detection import IqrDetector, SpikeDetector
+    from hazure.thresholds import IqrThreshold, MadThreshold
 
-    with pytest.raises(TypeError, match="is not a SpikeDetector"):
-        SpikeDetector.from_dict(IqrDetector().to_dict())
+    with pytest.raises(TypeError, match="is not a MadThreshold"):
+        MadThreshold.from_dict(IqrThreshold().to_dict())
 
 
 def test_a_reserved_key_in_a_mapping_parameter_is_refused() -> None:
-    from hazure.features import RollingAggregate
+    from hazure.transformers import RollingAggregate
 
     component = RollingAggregate(
         window=3, agg="quantile", agg_params={"q": 0.5, "__tuple__": 1}
@@ -570,9 +545,138 @@ def test_a_reserved_key_in_a_mapping_parameter_is_refused() -> None:
 
 def test_a_component_of_your_own_round_trips_when_you_name_the_class() -> None:
     # Deserialising has to import the class a payload names, and an import runs
-    # code, so a bare Configurable.from_dict stays inside hazure. Naming the
+    # code, so a bare Component.from_dict stays inside hazure. Naming the
     # class yourself is proof it is already imported, so this is allowed.
     stored = Doubler(factor=3.0).to_dict()
     assert Doubler.from_dict(stored).factor == 3.0
     with pytest.raises(ValueError, match="outside hazure"):
-        Configurable.from_dict(stored)
+        Component.from_dict(stored)
+
+
+# -- nesting ----------------------------------------------------------------
+
+
+def test_nested_parameters_are_reported_by_name() -> None:
+    detector = Detector(DeviationScorer(absolute=False), OverMean(factor=2.5))
+    params = detector.get_params()
+    assert params["scorer__absolute"] is False
+    assert params["threshold__factor"] == 2.5
+    assert set(detector.get_params(deep=False)) == {"scorer", "threshold"}
+
+
+def test_a_nested_parameter_is_set_through_its_part(stepped: pd.Series) -> None:
+    detector = Detector(DeviationScorer(), OverMean())
+    assert detector.fit_detect(stepped).sum() > 0
+    detector.set_params(threshold__factor=100.0)
+    assert detector.threshold.factor == 100.0
+    assert detector.fit_detect(stepped).sum() == 0
+
+
+def test_replacing_a_part_and_configuring_it_in_one_call_configures_the_new_part() -> (
+    None
+):
+    detector = Detector(DeviationScorer(), OverMean())
+    replacement = OverMean()
+    detector.set_params(threshold=replacement, threshold__factor=3.0)
+    assert detector.threshold is replacement
+    assert replacement.factor == 3.0
+
+
+def test_an_unknown_nested_part_is_refused() -> None:
+    with pytest.raises(KeyError, match="reaches into"):
+        Detector(DeviationScorer(), OverMean()).set_params(scorre__absolute=True)
+
+
+def test_pipeline_steps_are_parts_named_by_their_step() -> None:
+    pipeline = Pipeline([("double", Doubler()), ("score", DeviationScorer())])
+    assert pipeline.get_params()["double__factor"] == 2.0
+    pipeline.set_params(double__factor=5.0)
+    assert pipeline.named_steps()["double"].factor == 5.0
+
+
+def test_graph_nodes_are_parts_named_by_their_node() -> None:
+    graph = Graph([Node("double", Doubler())])
+    graph.set_params(double__factor=5.0)
+    assert graph.named_nodes()["double"].factor == 5.0
+
+
+# -- the detector ------------------------------------------------------------
+
+
+def test_a_detector_refuses_a_scorer_that_does_not_score() -> None:
+    with pytest.raises(TypeError, match="AsScorer"):
+        Detector(Doubler(), OverMean())  # type: ignore[arg-type]
+
+
+def test_a_detector_refuses_a_threshold_that_does_not_label() -> None:
+    with pytest.raises(TypeError, match="must produce labels"):
+        Detector(DeviationScorer(), DeviationScorer())
+
+
+def test_a_detector_of_untrainable_parts_needs_no_fit(stepped: pd.Series) -> None:
+    from hazure.thresholds import FixedThreshold
+
+    detector = Detector(None, FixedThreshold(high=5.0))
+    assert not detector.is_trainable
+    assert detector.detect(stepped).sum() == 5.0
+
+
+def test_a_detector_is_as_multivariate_as_its_scorer() -> None:
+    assert not Detector(DeviationScorer(), OverMean()).is_multivariate
+    assert detectors.pca().is_multivariate
+
+
+def test_a_composite_of_untrainable_parts_needs_no_fit(stepped: pd.Series) -> None:
+    pipeline = Pipeline([("double", Doubler()), ("again", Doubler(factor=3.0))])
+    assert not pipeline.is_trainable
+    assert pipeline.transform(stepped).max() == 60.0
+
+
+# -- storage conventions ----------------------------------------------------
+
+
+class Cached(Transformer):
+    """Holds a cache, which is not state, and a declared private anchor, which is."""
+
+    trainable: ClassVar[bool] = True
+    _persisted: ClassVar[tuple[str, ...]] = (*Transformer._persisted, "_anchor")
+
+    def _learn(self, ts: TimeSeries) -> None:
+        self.level_ = float(np.nanmean(ts.values))
+        self._anchor = int(ts.time[0])
+        self._cache = object()
+
+    def _compute(self, ts: TimeSeries) -> TimeSeries:
+        return ts.wrap(ts.values - self.level_)
+
+
+def test_only_parameters_fitted_attributes_and_declared_state_are_stored(
+    stepped: pd.Series,
+) -> None:
+    stored = Cached().fit(stepped).to_dict()["state"]
+    assert "level_" in stored
+    assert "_anchor" in stored
+    assert "_cache" not in stored
+    restored = Cached.from_dict(Cached().fit(stepped).to_dict())
+    assert restored._anchor == stored["_anchor"]
+    assert restored.fitted
+
+
+def test_a_pipeline_round_trips_with_its_steps(stepped: pd.Series) -> None:
+    import json
+
+    from hazure.scorers import DeviationScorer as RealDeviationScorer
+    from hazure.thresholds import IqrThreshold
+
+    pipeline = Pipeline([("score", RealDeviationScorer()), ("cut", IqrThreshold())])
+    expected = pipeline.fit_detect(stepped)
+    restored = Pipeline.from_dict(json.loads(json.dumps(pipeline.to_dict())))
+    pd.testing.assert_series_equal(restored.detect(stepped), expected)
+
+
+def test_sklearn_style_shallow_parameters_are_available() -> None:
+    """``sklearn.base.clone`` asks for ``get_params(deep=False)``."""
+    detector = detectors.iqr()
+    shallow = detector.get_params(deep=False)
+    rebuilt = type(detector)(**shallow)
+    assert repr(rebuilt) == repr(detector)

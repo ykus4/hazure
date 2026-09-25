@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 import numpy as np
 
-from hazure import TimeSeries
+from hazure._core import TimeSeries
 from hazure._core.missing import as_flags
 from hazure.events import Events
 

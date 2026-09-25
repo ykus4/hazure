@@ -16,8 +16,8 @@ Everything is one of five things, and each has `fit` plus one verb:
 | `Scorer` | a series | a continuous score | `.score()`, `.fit_score()` |
 | `Threshold` | a score | binary labels | `.apply()`, `.fit_apply()` |
 | `Detector` | a series | binary labels | `.detect()`, `.fit_detect()` |
-| `Aggregator` | several label series | one label series | `.aggregate()` |
 | `Transformer` | a series | a series | `.transform()`, `.fit_transform()` |
+| `Aggregator` | several columns | one column | `.aggregate()` |
 
 A score answers *how unusual is this point*, on whatever scale the algorithm
 works in, higher being more unusual. A threshold answers *is that unusual enough
@@ -26,23 +26,30 @@ threshold policy is then reusable across every scorer, a scorer can be swapped
 without revisiting the policy, and a score is useful on its own — for ranking the
 worst hours of a month even when none of them crosses a line.
 
-A `Detector` is the pairing of the two, since that is how detection is usually
-wanted, and the parts stay reachable as `.scorer` and `.threshold`. Pull a
-detector apart to inspect the raw score, or build your own pairing with
-`ScoreDetector(scorer, threshold)`.
+A `Detector` is the pairing of the two, `Detector(scorer, threshold)`, since that
+is how detection is usually wanted. It is the only detector class: every
+ready-made detector in `hazure.detectors` is a function that returns one, with the
+scorer and threshold chosen for a particular kind of anomaly. So the parts are
+always reachable as `.scorer` and `.threshold`, `repr()` shows what a detector is
+made of, and their settings are reachable by name —
+`detector.set_params(threshold__side="positive")` — for reconfiguring or for
+grid search. Pull a detector apart to inspect the raw score, or build your own
+pairing from any scorer and any threshold.
 
 A `Transformer` sits upstream: a rolling aggregate, a lag, a seasonal
-decomposition. An `Aggregator` sits downstream, reducing several detectors'
-verdicts to one. `Pipeline` chains components; `Graph` wires them as a directed
+decomposition. One whose output is itself a score becomes a scorer through
+`AsScorer(transformer)`. An `Aggregator` sits downstream, reducing several
+detectors' verdicts to one; it is an ordinary component that needs every column
+at once, so it can end a `Graph` or follow a step in a `Pipeline`. `Pipeline` chains components; `Graph` wires them as a directed
 acyclic graph when the model branches. Both are themselves components, so a
 pipeline can be a node of a graph and either can be used anywhere a detector can.
 
 Two conventions run through all of it:
 
 - **Labels are `1.0` anomalous, `0.0` normal, `NaN` unknown.** Fitted attributes
-  end in an underscore (`threshold_`, `period_`), and every constructor parameter
-  is a plain keyword argument stored under its own name, so `get_params()`,
-  `clone()` and `repr()` need no maintenance.
+  end in an underscore (`high_`, `period_`), and every constructor parameter is a
+  plain keyword argument stored under its own name, so `get_params()`, `clone()`
+  and `repr()` need no maintenance.
 - **Results come back in the flavour they went in as.** pandas in, pandas out,
   with the same index; polars in, polars out, with the time column in the same
   place.
@@ -54,14 +61,16 @@ which of these you mean.
 
 | The anomaly is | Reach for | Because |
 | --- | --- | --- |
-| a value outside its usual range | `IqrDetector`, `QuantileDetector`, `EsdDetector`, `ThresholdDetector` | the value alone is enough to judge; no context needed |
-| a **spike** — local and temporary | `SpikeDetector` | compares each point with the window just before it, so a slow drift is invisible to it |
-| a **level shift** — permanent | `LevelShiftDetector` | compares two long windows either side of each point; a single odd value cannot move a wide median |
-| a **volatility shift** | `VolatilityShiftDetector` | measures spread rather than position, relatively, so a doubling of noise counts equally on a quiet series and a loud one |
-| a violation of a **seasonal pattern** | `SeasonalDetector` | the cycle is normal behaviour, so it belongs in the model rather than in the anomalies |
-| a violation of the series' own **dynamics** | `AutoregressionDetector` | asks whether a value is unusual *given* where the series just was, which catches a break at a perfectly ordinary level |
-| a broken relationship **between columns** | `RegressionDetector`, `PcaDetector` | both columns can be in their usual range and still be impossible together |
-| a rare **combination** of readings | `MinClusterDetector`, `OutlierDetector` | nothing needs to be said about what anomalous looks like; the shape of the data decides |
+| a value outside its usual range | `detectors.iqr`, `detectors.quantile`, `detectors.esd`, `detectors.limits` | the value alone is enough to judge; no context needed |
+| a **spike** — local and temporary | `detectors.spike`, `detectors.hampel` | compares each point with the window just before it, so a slow drift is invisible to it |
+| a **level shift** — permanent | `detectors.level_shift` | compares two long windows either side of each point; a single odd value cannot move a wide median |
+| a **volatility shift** | `detectors.volatility_shift` | measures spread rather than position, relatively, so a doubling of noise counts equally on a quiet series and a loud one |
+| a violation of a **seasonal pattern** | `detectors.seasonal`, `detectors.stl`, `detectors.mstl` | the cycle is normal behaviour, so it belongs in the model rather than in the anomalies |
+| a violation of the series' own **dynamics** | `detectors.autoregression` | asks whether a value is unusual *given* where the series just was, which catches a break at a perfectly ordinary level |
+| a change of **regime** | `detectors.pelt`, `detectors.ruptures` | asks when the series *became* a different series, by partitioning all of it |
+| an unusual **shape** | `detectors.matrix_profile`, `detectors.damp` | scores a subsequence rather than a point, so an anomaly made of ordinary values is still found |
+| a broken relationship **between columns** | `detectors.regression`, `detectors.pca` | both columns can be in their usual range and still be impossible together |
+| a rare **combination** of readings | `detectors.min_cluster`, `detectors.outlier` | nothing needs to be said about what anomalous looks like; the shape of the data decides |
 
 The distinctions matter more than they look. Here are three series, each with one
 thing wrong, and the detector that suits each:
@@ -69,11 +78,7 @@ thing wrong, and the detector that suits each:
 ```python
 import numpy as np
 import pandas as pd
-from hazure.detection import (
-    LevelShiftDetector,
-    SpikeDetector,
-    VolatilityShiftDetector,
-)
+from hazure import detectors
 from hazure.events import to_events
 
 rng = np.random.default_rng(4)
@@ -92,9 +97,9 @@ values[300:] = 10.0 + rng.normal(0.0, 4.0, 300)  # same level, more noise
 noisy = pd.Series(values, index=index, name="t")
 
 for name, detector, series in (
-    ("spike", SpikeDetector(window=24, factor=6.0), spiky),
-    ("level shift", LevelShiftDetector(window=24), stepped),
-    ("volatility shift", VolatilityShiftDetector(window=24, factor=6.0), noisy),
+    ("spike", detectors.spike(window=24, factor=6.0), spiky),
+    ("level shift", detectors.level_shift(window=24), stepped),
+    ("volatility shift", detectors.volatility_shift(window=24, factor=6.0), noisy),
 ):
     events = to_events(detector.fit_detect(series))
     first = np.datetime64(int(events.bounds[0, 0]), "ns")
@@ -111,7 +116,14 @@ subject of the first section below.
 
 Every one of these takes a `factor`, which is how many spreads from normal is too
 far, and a `side` of `"both"`, `"positive"` or `"negative"`. Detecting only the
-increases is not a different algorithm, just a filter on the same one.
+increases is not a different algorithm, just a filter on the same one: the
+threshold is a `SignedThreshold`, which judges the size of a signed score and
+then keeps only the direction asked for.
+
+```python
+print(detectors.spike(window=24, side="positive").threshold)
+# SignedThreshold(threshold=IqrThreshold(factor=(None, 3.0)), side='positive')
+```
 
 ## Univariate and multivariate
 
@@ -122,8 +134,6 @@ verdict column back. That is what "separable across series" means — the algori
 never needs to see two columns at once, so `hazure` can fan it out for you.
 
 ```python
-from hazure.detection import IqrDetector
-
 frame = pd.DataFrame(
     {"celsius": rng.normal(20.0, 1.0, 200), "pascals": rng.normal(1e5, 500.0, 200)},
     index=index[:200],
@@ -131,7 +141,7 @@ frame = pd.DataFrame(
 frame.iloc[50, 0] = 40.0
 frame.iloc[150, 1] = 2e5
 
-detector = IqrDetector().fit(frame)
+detector = detectors.iqr().fit(frame)
 labels = detector.detect(frame)
 print(list(labels.columns), labels.sum().to_dict())
 # ['celsius', 'pascals'] {'celsius': 1.0, 'pascals': 1.0}
@@ -145,14 +155,12 @@ once, and it returns a **single** verdict rather than one per column, because th
 anomaly is a property of the combination:
 
 ```python
-from hazure.detection import RegressionDetector
-
 requests = 100 + 20 * np.sin(np.arange(400) / 12) + rng.normal(0, 2, 400)
 cpu = 0.4 * requests + rng.normal(0, 1, 400)
 cpu[250:256] += 30.0  # CPU burns without the traffic to explain it
 pair = pd.DataFrame({"requests": requests, "cpu": cpu}, index=index[:400])
 
-verdict = RegressionDetector(target="cpu").fit_detect(pair)
+verdict = detectors.regression(target="cpu").fit_detect(pair)
 print(list(verdict.columns))
 # ['anomaly']
 ```
@@ -171,7 +179,7 @@ observation in the output.
 gappy = spiky.copy()
 gappy.iloc[100:105] = np.nan
 
-verdict = IqrDetector().fit_detect(gappy)
+verdict = detectors.iqr().fit_detect(gappy)
 print(verdict.iloc[99:106].to_list())
 # [0.0, nan, nan, nan, nan, nan, 0.0]
 ```
@@ -183,7 +191,7 @@ calling them normal. Both `to_events` and the point-based metrics read `NaN` as
 not-anomalous, so an unknown region never invents an event, but it never counts
 as a correct negative either.
 
-`validate_series` applies the same normalisation every detector applies
+`hazure.events.validate_series` applies the same normalisation every detector applies
 internally — read the time axis, sort it, keep the first observation at each
 timestamp, cast to float — and hands the result back, so a surprising detection
 can be traced to a reordered axis or a dropped duplicate rather than guessed at.
@@ -198,13 +206,15 @@ If somebody wrote the incidents down, `tune_threshold` searches for the cut-off
 that scores best against them:
 
 ```python
-from hazure import budget_threshold, tune_threshold
+from hazure.calibration import budget_threshold, tune_threshold
 from hazure.datasets import make_series
 from hazure.evaluation import recall
-from hazure.scoring import DoubleRollingScorer
+from hazure.scorers import AsScorer
+from hazure.transformers import DoubleRollingAggregate
 
 data = make_series("spike", n=3000, n_anomalies=5, strength=9.0, backend="pandas")
-scores = DoubleRollingScorer(window=(24, 1)).fit_score(data.data)
+spikiness = AsScorer(DoubleRollingAggregate(window=(24, 1), agg="median"))
+scores = spikiness.fit_score(data.data)
 
 best = tune_threshold(data.events, scores)
 print(best, to_events(best.threshold.apply(scores)).n_events, "alerts")
@@ -257,37 +267,39 @@ but only if the fitted model outlives the process that fitted it. `to_dict` and
 ```python
 import json
 
-from hazure.detection import SpikeDetector
+from hazure import Detector
 
-fitted = SpikeDetector(window=24, factor=6.0).fit(spiky)
+fitted = detectors.spike(window=24, factor=6.0).fit(spiky)
 stored = json.dumps(fitted.to_dict())
 
-restored = SpikeDetector.from_dict(json.loads(stored))
-print(restored.threshold.high_ == fitted.threshold.high_)
+restored = Detector.from_dict(json.loads(stored))
+print(restored.threshold.threshold.high_ == fitted.threshold.threshold.high_)
 # True
 print(restored.detect(spiky).equals(fitted.detect(spiky)))
 # True
 ```
 
-`restored` needs no second `fit`. What was captured is **everything the component
-held**, not only its parameters and not only its `fitted_` attributes: nested
-components, the per-column copies a univariate component fanned out into, and
-private state like the phase anchor `SeasonalDecomposition` learns. That
-completeness is the point — a seasonal profile restored without its anchor would
-not raise, it would answer, and answer against the wrong phase.
+`restored` needs no second `fit`. What is captured follows a convention rather
+than whatever the instance happens to hold: the constructor parameters — nested
+components included — every fitted attribute (a public name ending in an
+underscore), and the private state a class declares as state, such as the
+per-column copies a univariate component fanned out into and the phase anchor
+`SeasonalDecomposition` learns. That completeness is the point — a seasonal
+profile restored without its anchor would not raise, it would answer, and answer
+against the wrong phase. Anything else a component holds is a cache, and is
+rebuilt rather than stored.
 
 Two limits worth knowing before you build on it.
 
-**A model `hazure` did not build cannot be stored.** `OutlierDetector(model=...)`
-and `MinClusterDetector(model=...)` hold your estimator, and hazure has no
+**A model `hazure` did not build cannot be stored.** `detectors.outlier(model)`
+and `detectors.min_cluster(model)` hold your estimator, and hazure has no
 reconstruction for it, so `to_dict` raises and says to use `pickle` or to fit
 again. Everything else round-trips, including `OrdinaryLeastSquares` and so
-`AutoregressionDetector` and `RegressionDetector` at their defaults.
+`detectors.autoregression` and `detectors.regression` at their defaults.
 
 **Deserialising imports the class the payload names**, and an import runs code.
-So `Configurable.from_dict` refuses any name outside `hazure`, and naming the
-class yourself — `MySpikeDetector.from_dict(payload)` — needs no import and is
-allowed. A payload is still not a trust boundary: one from a stranger can
+So `Component.from_dict` refuses any name outside `hazure`, and naming the class
+yourself — `MyScorer.from_dict(payload)` — needs no import and is allowed. A payload is still not a trust boundary: one from a stranger can
 construct a hazure component with strange parameters, which is a much smaller
 problem than naming any importable object in the interpreter, but not nothing.
 
@@ -317,7 +329,7 @@ arriving observation. `Stream` is that loop:
 ```python
 from hazure import Stream
 
-detector = SpikeDetector(window=24, factor=6.0).fit(spiky.iloc[:72])
+detector = detectors.spike(window=24, factor=6.0).fit(spiky.iloc[:72])
 stream = Stream(detector, history=48).prime(spiky.iloc[:72])
 
 labels = stream.update_many(spiky.iloc[72:])
@@ -328,7 +340,7 @@ print(int(labels.sum()), str(labels.index[labels == 1.0][0]))
 Two things are worth pulling out of that.
 
 **The online answer is the batch answer.** There is one implementation of
-`SpikeDetector`, and streaming reuses it rather than reimplementing it
+each scorer and threshold, and streaming reuses it rather than reimplementing it
 incrementally, so the two cannot drift apart. The cost is that each observation
 runs the detector over the whole buffer — irrelevant at one sample a minute, and
 the reason this is the right trade for monitoring rather than for a tight loop.
@@ -344,8 +356,8 @@ they disagree:
 try:
     Stream(detector, history=5).prime(spiky.iloc[:72])
 except ValueError as error:
-    print(str(error).split(":")[0])
-# Stream(history=5) is too short for SpikeDetector
+    print(str(error).partition(" for ")[0])
+# Stream(history=5) is too short
 ```
 
 Sizing `history` is not simply reading the detector's `window` — a `Pipeline`
@@ -370,10 +382,10 @@ how normal behaves. The two pieces compose: stream the scorer, and hand each sco
 to the threshold.
 
 ```python
-from hazure import PotThreshold
-from hazure.scoring import DoubleRollingScorer
+from hazure.thresholds import PotThreshold
 
-scorer = DoubleRollingScorer(window=(24, 1)).fit(spiky.iloc[:400])
+scorer = AsScorer(DoubleRollingAggregate(window=(24, 1), agg="median"))
+scorer.fit(spiky.iloc[:400])
 fence = PotThreshold(high=1e-3, level=0.95).fit(scorer.score(spiky.iloc[:400]))
 scores = Stream(scorer, history=48).prime(spiky.iloc[:400])
 
@@ -400,7 +412,7 @@ fitted from less data — is the whole tension in the method, and is discussed o
 
 ### A shift detector reports the change point, not the anomalous interval
 
-`LevelShiftDetector` answers *when did the series become a different series*. It
+`detectors.level_shift` answers *when did the series become a different series*. It
 compares the window before each point with the window after it, so it fires
 around the moment of change and goes quiet again once both windows sit at the new
 level — even though, in an operational sense, everything after the change is
@@ -420,7 +432,7 @@ values = rng.normal(10.0, 1.0, 480)
 values[240:] += 6.0
 series = pd.Series(values, index=axis, name="temperature")
 
-found = to_events(LevelShiftDetector(window=24).fit_detect(series))
+found = to_events(detectors.level_shift(window=24).fit_detect(series))
 print(found)
 # Events([2024-01-10T12:00:00..2024-01-11T12:59:59.999999999])
 
@@ -446,16 +458,16 @@ print(f1_score(as_change_point, found))
 # 1.0
 ```
 
-The same applies to `VolatilityShiftDetector` and to the change-point methods in
-`hazure.methods`. If what you actually want is the whole degraded
+The same applies to `detectors.volatility_shift` and to the change-point detectors
+`detectors.pelt` and `detectors.ruptures`. If what you actually want is the whole degraded
 stretch, detect the change points and fill between them, or use a detector that
 judges each point on its own — a level shift leaves every subsequent value
-outside the *training* range, which is exactly what `IqrDetector` fitted on the
+outside the *training* range, which is exactly what `detectors.iqr` fitted on the
 clean history will tell you.
 
 ### An inter-quartile fence widens as the fraction of unusual scores grows
 
-`IqrDetector` and `IqrThreshold` use the box-plot rule: everything outside
+`detectors.iqr` and `IqrThreshold` use the box-plot rule: everything outside
 `[Q1 - factor * IQR, Q3 + factor * IQR]`. Quartiles ignore the tails, which is
 the whole point — the outliers being looked for do not widen the range that is
 supposed to exclude them.
@@ -465,13 +477,11 @@ unusual state and a quartile lands *inside* it, the inter-quartile range grows t
 span both regimes, and the fence stops separating them:
 
 ```python
-from hazure.detection import IqrDetector
-
 axis = pd.date_range("2024-01-01", periods=200, freq="h", name="time")
 for fraction in (0.05, 0.2, 0.4, 0.6):
     values = rng.normal(0.0, 1.0, 200)
     values[: int(200 * fraction)] += 8.0
-    flagged = IqrDetector(factor=1.5).fit_detect(pd.Series(values, index=axis))
+    flagged = detectors.iqr(factor=1.5).fit_detect(pd.Series(values, index=axis))
     print(f"{fraction:>4.0%} of the series raised -> {int(flagged.sum()):3d} flagged")
 #   5% of the series raised ->  10 flagged
 #  20% of the series raised ->  40 flagged
@@ -490,9 +500,9 @@ What to do about it, in order of preference:
 1. **Fit on a clean period and apply to the suspect one.** `fit` on the history
    you trust, `detect` on the rest — the fence then comes from data that has not
    been contaminated. `split_train_test` builds time-ordered folds for this.
-2. **Say what normal is.** `ThresholdDetector(low=..., high=...)` learns nothing,
+2. **Say what normal is.** `detectors.limits(low=..., high=...)` learns nothing,
    so nothing can contaminate it.
-3. **Ask a local question instead.** `SpikeDetector` and `LevelShiftDetector`
+3. **Ask a local question instead.** `detectors.spike` and `detectors.level_shift`
    compare each point with its own neighbourhood, so a regime lasting most of the
    series is still a departure from the hour before it began.
 4. **Detect the transition.** If most of the series is in the bad state, the

@@ -44,8 +44,9 @@ unboundedly surprising.
 ## Seasonal residual
 
 When a daily or weekly cycle is normal behaviour, it belongs in the model rather
-than in the anomalies. `SeasonalResidualScorer` learns the average shape of one
-cycle and scores what that shape fails to explain:
+than in the anomalies. `SeasonalDecomposition`, used as a scorer through
+`AsScorer`, learns the average shape of one cycle and scores what that shape fails
+to explain:
 
 $$
 s_t = x_t - T_t - S_{\phi(t)}
@@ -157,8 +158,8 @@ $$
 
 Mechanically it is a lag matrix and a regression: `Retrospect` builds the columns
 `t-0, t-s, …, t-ns`, and `RegressionResidual` takes `t-0` as the target and the
-rest as features. Any regressor with `fit` / `predict` can be substituted — the
-scorer deep-copies it, so a frame fanned out across columns fits one model per
+rest as features. Any regressor with `fit` / `predict` can be substituted —
+`RegressionResidual` deep-copies it, so a frame fanned out across columns fits one model per
 column instead of overwriting one shared object.
 
 What this catches that the others do not is a **break in dynamics at an ordinary
@@ -176,41 +177,43 @@ days.
 
 ## Every detector, disassembled
 
-A `Detector` is a scorer and a threshold, and both parts stay reachable as
-`.scorer` and `.threshold`. Below is what each ready-made one is made of. Every
-`IqrThreshold(None, f)` is one-sided — the fence applies to $|s_t|$, and `side`
-filters the sign afterwards.
+Every function in `hazure.detectors` returns a `Detector`: a scorer and a
+threshold, both reachable as `.scorer` and `.threshold`. Below is what each one
+is made of. A `SignedThreshold` applies the fence inside it to $|s_t|$, and `side`
+filters the sign afterwards; the other rows apply their fence to the score as it
+is, which for those scorers is never negative.
 
-| Detector | Scorer | Threshold |
+| `detectors.` | Scorer | Threshold |
 | --- | --- | --- |
-| `ThresholdDetector` | *(none — the value is the score)* | `FixedThreshold(low, high)` |
-| `QuantileDetector` | *(none)* | `QuantileThreshold(low, high)` |
-| `IqrDetector` | *(none)* | `IqrThreshold(factor=3.0)` |
-| `EsdDetector` | *(none)* | `EsdThreshold(alpha=0.05)` |
-| `SpikeDetector` | `DoubleRollingScorer((w, 1), "median", "diff")` | `IqrThreshold((None, 3.0))` |
-| `LevelShiftDetector` | `DoubleRollingScorer(w, "median", "diff")` | `IqrThreshold((None, 6.0))` |
-| `VolatilityShiftDetector` | `DoubleRollingScorer(w, "std", "rel_diff")` | `IqrThreshold((None, 6.0))` |
-| `SeasonalDetector` | `SeasonalResidualScorer(period, trend)` | `IqrThreshold((None, 3.0))` |
-| `AutoregressionDetector` | `AutoregressionResidualScorer(n, s)` | `IqrThreshold((None, 3.0))` |
-| `RegressionDetector` | `RegressionResidualScorer(target)` | `IqrThreshold((None, 3.0))` |
-| `PcaDetector` | `PcaReconstructionErrorScorer(k)` | `IqrThreshold((None, 5.0))` |
-| `MinClusterDetector` | `MinClusterScorer(model)` | `FixedThreshold(high=0.5)` |
-| `OutlierDetector` | `OutlierScorer(model)` | `FixedThreshold(high=0.5)` |
-| `SpectralResidualDetector` | `SpectralResidualScorer(...)` | `IqrThreshold((None, 3.0))` |
-| `HampelDetector` | `HampelScorer(window, center)` | `FixedThreshold(high=factor)` |
-| `PeltDetector` | `PeltScorer(...)` | `FixedThreshold(high=0.0)` |
-| `MatrixProfileDetector` | `MatrixProfileScorer(window)` | `IqrThreshold((None, 3.0))` |
-| `DampDetector` | `DampScorer(window)` | `IqrThreshold((None, 3.0))` |
-| `RollingQuantileDetector` | `RollingQuantileScorer(window, low, high)` | `IqrThreshold((None, 3.0))` |
-| `RupturesDetector` | `RupturesScorer(...)` | `FixedThreshold(high=0.0)` |
-| `StlDetector`, `MstlDetector` | `StlResidualScorer` / `MstlResidualScorer` | `IqrThreshold((None, 3.0))` |
+| `limits` | *(none — the value is the score)* | `FixedThreshold(low, high)` |
+| `quantile` | *(none)* | `QuantileThreshold(low, high)` |
+| `iqr` | *(none)* | `IqrThreshold(factor=3.0)` |
+| `esd` | *(none)* | `EsdThreshold(alpha=0.05)` |
+| `spike` | `AsScorer(DoubleRollingAggregate((w, 1), "median", diff="diff"))` | `SignedThreshold(IqrThreshold((None, 3.0)), side)` |
+| `level_shift` | `AsScorer(DoubleRollingAggregate(w, "median", diff="diff"))` | `SignedThreshold(IqrThreshold((None, 6.0)), side)` |
+| `volatility_shift` | `AsScorer(DoubleRollingAggregate(w, "std", diff="rel_diff"))` | `SignedThreshold(IqrThreshold((None, 6.0)), side)` |
+| `seasonal` | `AsScorer(SeasonalDecomposition(period, trend))` | `SignedThreshold(IqrThreshold((None, 3.0)), side)` |
+| `autoregression` | `AutoregressionResidualScorer(n, s)` | `SignedThreshold(IqrThreshold((None, 3.0)), side)` |
+| `regression` | `AsScorer(RegressionResidual(target))` | `SignedThreshold(IqrThreshold((None, 3.0)), side)` |
+| `pca` | `AsScorer(PcaReconstructionError(k))` | `IqrThreshold((None, 5.0))` |
+| `min_cluster` | `MinClusterScorer(model)` | `FixedThreshold(high=0.5)` |
+| `outlier` | `OutlierScorer(model)` | `FixedThreshold(high=0.5)` |
+| `spectral_residual` | `SpectralResidualScorer(...)` | `IqrThreshold((None, 3.0))` |
+| `hampel` | `HampelScorer(window, center)` | `FixedThreshold(high=factor)` |
+| `pelt` | `PeltScorer(...)` | `FixedThreshold(high=0.0)` |
+| `matrix_profile` | `MatrixProfileScorer(window)` | `IqrThreshold((None, 3.0))` |
+| `damp` | `DampScorer(window)` | `IqrThreshold((None, 3.0))` |
+| `rolling_quantile` | `RollingQuantileScorer(window, low, high)` | `IqrThreshold((None, 3.0))` |
+| `ruptures` | `RupturesScorer(...)` | `FixedThreshold(high=0.0)` |
+| `stl`, `mstl` | `StlResidualScorer` / `MstlResidualScorer` | `IqrThreshold((None, 3.0))` |
 
 The `FixedThreshold` rows are the interesting ones. Everything else learns a
 cut-off because its score is in arbitrary units; a Hampel score is already in
 robust standard deviations and a cluster score is already binary, so learning a
 fence for either would add a failure mode without adding information.
 
-Nothing about these pairings is privileged. `ScoreDetector(scorer, threshold)`
-builds any other combination, and a scorer used on its own is often the more
-useful object — a ranking of the worst hours of a month does not need a line
-drawn through it.
+Nothing about these pairings is privileged. `Detector(scorer, threshold)` builds
+any other combination, the parts of a ready-made one are reconfigured in place
+with `set_params(threshold__threshold__factor=4.0)`, and a scorer used on its own
+is often the more useful object — a ranking of the worst hours of a month does not
+need a line drawn through it.

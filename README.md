@@ -24,7 +24,7 @@ pip install hazure[pandas]
 ```python
 import numpy as np
 import pandas as pd
-from hazure.detection import SeasonalDetector
+from hazure import detectors
 from hazure.events import to_events
 
 # Hourly traffic with a daily rhythm — and one afternoon that went wrong.
@@ -34,7 +34,7 @@ daily = 40 * np.sin(2 * np.pi * np.arange(len(index)) / 24)
 traffic = pd.Series(100 + daily + rng.normal(0, 3, len(index)), index=index, name="rps")
 traffic.iloc[300:306] = 20.0
 
-labels = SeasonalDetector(period=24).fit_detect(traffic)
+labels = detectors.seasonal(period=24).fit_detect(traffic)
 print(to_events(labels))
 # Events([2024-03-13T12:00:00..2024-03-13T17:59:59.999999999])
 ```
@@ -42,9 +42,14 @@ print(to_events(labels))
 `labels` sits on `traffic`'s own index — `1.0` anomalous, `0.0` normal, `NaN`
 unknown — and the six flagged hours are exactly the six that were planted.
 
-Everything is one of five composable component types (`Scorer`, `Threshold`,
-`Detector`, `Aggregator`, `Transformer`), chained with `Pipeline` and wired with
-`Graph` when the model branches.
+`detectors.seasonal` is one of a set of ready-made detectors, one per kind of
+anomaly — spikes, level shifts, broken seasonality, columns that stop agreeing.
+Each is a function returning a `Detector`: a `Scorer` ("how unusual is each
+point?") and a `Threshold` ("is that unusual enough to report?") held together.
+Print one and it shows what it is made of; its parts are reachable by name, so
+`set_params(threshold__factor=4.0)` reconfigures it and a grid search needs
+nothing special. Build your own pairing with `Detector(scorer, threshold)`, chain
+steps with `Pipeline`, and wire them with `Graph` when the model branches.
 
 ## On a series that is still arriving
 
@@ -58,7 +63,7 @@ that was never full.
 ```python
 from hazure import Stream
 
-detector = SeasonalDetector(period=24).fit(traffic)
+detector = detectors.seasonal(period=24).fit(traffic)
 stream = Stream(detector, history=48).prime(traffic)
 
 stream.update("2024-03-22T00:00", 105.0)  # in line with the fortnight -> 0.0

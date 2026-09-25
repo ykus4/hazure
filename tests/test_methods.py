@@ -16,25 +16,16 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hazure import TimeSeries
-from hazure.methods import (
-    DampDetector,
+from hazure import Component, TimeSeries, detectors
+from hazure.scorers import (
     DampScorer,
-    HampelDetector,
     HampelScorer,
-    MatrixProfileDetector,
     MatrixProfileScorer,
-    MstlDetector,
     MstlResidualScorer,
-    PeltDetector,
     PeltScorer,
-    RollingQuantileDetector,
     RollingQuantileScorer,
-    RupturesDetector,
     RupturesScorer,
-    SpectralResidualDetector,
     SpectralResidualScorer,
-    StlDetector,
     StlResidualScorer,
 )
 from tests.conftest import BACKENDS, make_native
@@ -165,13 +156,13 @@ def test_the_spectral_residual_scorer_rejects_a_series_window_of_one() -> None:
 
 
 def test_the_spectral_residual_detector_flags_the_planted_spike_alone() -> None:
-    labels = SpectralResidualDetector(factor=12.0).fit_detect(series(spiky(at=137)))
+    labels = detectors.spectral_residual(factor=12.0).fit_detect(series(spiky(at=137)))
     assert list(flagged(labels)) == [137]
 
 
 def test_the_spectral_residual_detector_returns_binary_labels() -> None:
     ts = series(sine(120))
-    labels = SpectralResidualDetector().fit(ts).run(ts)
+    labels = detectors.spectral_residual().fit(ts).run(ts)
     assert labels.n_rows == ts.n_rows
     assert set(np.unique(labels.values)) <= {0.0, 1.0}
 
@@ -219,13 +210,13 @@ def test_the_hampel_scorer_measures_a_deviation_in_local_standard_deviations() -
 def test_the_hampel_detector_flags_the_planted_outlier_without_fitting() -> None:
     values = np.tile([10.0, 11.0, 12.0, 11.0], 8)
     values[17] = 40.0
-    labels = HampelDetector().detect(series(values, freq="D"))
+    labels = detectors.hampel().detect(series(values, freq="D"))
     assert list(flagged(labels)) == [17]
 
 
 def test_the_hampel_detector_returns_binary_labels_with_an_unknown_margin() -> None:
     ts = series(10.0 + np.random.default_rng(0).normal(size=40), freq="D")
-    labels = HampelDetector(window=7).run(ts)
+    labels = detectors.hampel(window=7).run(ts)
     assert labels.n_rows == ts.n_rows
     assert np.isnan(labels.values.ravel()[:3]).all()
     assert set(np.unique(labels.values[3:-3])) == {0.0}
@@ -258,7 +249,7 @@ def test_the_rolling_quantile_scorer_rejects_a_bound_that_is_not_a_quantile() ->
 def test_the_rolling_quantile_detector_flags_the_break_in_a_drift() -> None:
     values = np.arange(40.0) + np.tile([0.0, 0.5, -0.5, 0.2], 10)
     values[26] += 12.0
-    labels = RollingQuantileDetector(window=10).fit_detect(series(values))
+    labels = detectors.rolling_quantile(window=10).fit_detect(series(values))
     assert list(flagged(labels)) == [26]
 
 
@@ -271,12 +262,12 @@ def test_the_rolling_quantile_detector_does_not_flag_an_ordinary_drift() -> None
     ts = series(values)
     excursions = numbers(RollingQuantileScorer(window=10).score(ts))
     assert (np.nan_to_num(excursions) > 0.0).sum() > 10
-    assert list(flagged(RollingQuantileDetector(window=10).fit_detect(ts))) == []
+    assert list(flagged(detectors.rolling_quantile(window=10).fit_detect(ts))) == []
 
 
 def test_the_rolling_quantile_detector_returns_binary_labels() -> None:
     ts = series(sine(200))
-    labels = RollingQuantileDetector(window=24).fit(ts).run(ts)
+    labels = detectors.rolling_quantile(window=24).fit(ts).run(ts)
     assert labels.n_rows == 200
     assert labels.columns == ("x",)
     assert set(np.unique(numbers(labels)[23:])) <= {0.0, 1.0}
@@ -383,13 +374,13 @@ def test_the_pelt_scorer_rejects_an_unknown_cost() -> None:
 
 
 def test_the_pelt_detector_flags_the_change_and_nothing_else() -> None:
-    labels = PeltDetector().fit_detect(series(step(at=60)))
+    labels = detectors.pelt().fit_detect(series(step(at=60)))
     assert list(flagged(labels)) == [60]
 
 
 def test_the_pelt_detector_returns_binary_labels() -> None:
     ts = series(step())
-    labels = PeltDetector().fit(ts).run(ts)
+    labels = detectors.pelt().fit(ts).run(ts)
     assert labels.n_rows == 120
     assert set(np.unique(labels.values)) <= {0.0, 1.0}
 
@@ -416,7 +407,7 @@ def test_the_ruptures_scorer_rejects_an_unknown_search_strategy() -> None:
 
 def test_the_ruptures_detector_flags_the_change_it_was_asked_for() -> None:
     pytest.importorskip("ruptures")
-    labels = RupturesDetector(model="dynp", n_bkps=1).fit_detect(series(step(at=60)))
+    labels = detectors.ruptures(model="dynp", n_bkps=1).fit_detect(series(step(at=60)))
     assert list(flagged(labels)) == [60]
 
 
@@ -424,7 +415,7 @@ def test_the_ruptures_detector_rejects_an_unknown_strategy_without_ruptures() ->
     # Validation precedes the lazy import, so this raises whether or not the
     # extra is installed.
     with pytest.raises(ValueError, match="model='wavelet'"):
-        RupturesDetector(model="wavelet")
+        detectors.ruptures(model="wavelet")
 
 
 # ---------------------------------------------------------------------------
@@ -463,7 +454,7 @@ def test_the_matrix_profile_scorer_rejects_a_window_with_no_shape() -> None:
 
 def test_the_matrix_profile_detector_flags_the_discord() -> None:
     pytest.importorskip("stumpy")
-    labels = MatrixProfileDetector(window=20).fit_detect(series(discord()))
+    labels = detectors.matrix_profile(window=20).fit_detect(series(discord()))
     positions = flagged(labels)
     assert 200 in positions
     # Every flagged point shares a subsequence with the discord.
@@ -490,7 +481,7 @@ def test_the_damp_detector_flags_the_first_occurrence_of_a_repeated_shape() -> N
     # the other, while scoring against the past alone leaves the first unmatched.
     values = discord()
     values[300:320] = values[200:220]
-    positions = flagged(DampDetector(window=20).fit_detect(series(values)))
+    positions = flagged(detectors.damp(window=20).fit_detect(series(values)))
     assert positions.size > 0
     assert positions.min() >= 200 - 19
     assert positions.max() <= 219 + 19
@@ -498,7 +489,7 @@ def test_the_damp_detector_flags_the_first_occurrence_of_a_repeated_shape() -> N
 
 def test_the_damp_detector_withholds_judgement_over_the_warm_up() -> None:
     pytest.importorskip("stumpy")
-    labels = numbers(DampDetector(window=20).fit_detect(series(discord())))
+    labels = numbers(detectors.damp(window=20).fit_detect(series(discord())))
     assert np.isnan(labels[:40]).all()
     assert not np.isnan(labels[60:]).any()
 
@@ -506,9 +497,9 @@ def test_the_damp_detector_withholds_judgement_over_the_warm_up() -> None:
 def test_the_matrix_profile_detector_passes_normalize_to_its_scorer() -> None:
     # No stumpy needed: the pairing is built at construction, the backend is
     # imported only when a series is scored.
-    detector = MatrixProfileDetector(window=20, normalize=False)
+    detector = detectors.matrix_profile(window=20, normalize=False)
     assert detector.scorer.normalize is False
-    assert MatrixProfileDetector(window=20).scorer.normalize is True
+    assert detectors.matrix_profile(window=20).scorer.normalize is True
 
 
 # ---------------------------------------------------------------------------
@@ -574,7 +565,7 @@ def test_the_stl_residual_scorer_declines_to_guess_an_unguessable_period() -> No
 
 def test_the_stl_detector_flags_the_planted_anomaly_alone() -> None:
     pytest.importorskip("statsmodels")
-    labels = StlDetector(factor=6.0).fit_detect(series(_seasonal(at=100)))
+    labels = detectors.stl(factor=6.0).fit_detect(series(_seasonal(at=100)))
     assert list(flagged(labels)) == [100]
 
 
@@ -600,7 +591,7 @@ def test_the_mstl_residual_scorer_rejects_an_empty_set_of_periods() -> None:
 
 def test_the_mstl_detector_flags_the_planted_anomaly_alone() -> None:
     pytest.importorskip("statsmodels")
-    labels = MstlDetector(periods=(24, 168), factor=25.0).fit_detect(
+    labels = detectors.mstl(periods=(24, 168), factor=25.0).fit_detect(
         series(_two_rhythms(at=300))
     )
     assert list(flagged(labels)) == [300]
@@ -616,7 +607,7 @@ def test_a_detector_gives_the_same_answer_on_every_backend(backend: str) -> None
     values = np.tile([10.0, 11.0, 12.0, 11.0], 8)
     values[17] = 40.0
     native = make_native(backend, values)
-    labels = HampelDetector().detect(native)
+    labels = detectors.hampel().detect(native)
     assert type(labels) is type(native)
     assert list(flagged(TimeSeries.from_any(labels))) == [17]
 
@@ -624,28 +615,37 @@ def test_a_detector_gives_the_same_answer_on_every_backend(backend: str) -> None
 def test_every_component_carries_its_parameters_through_a_clone() -> None:
     components: list[Any] = [
         SpectralResidualScorer(window=5, series_window=11, score_window=13),
-        SpectralResidualDetector(factor=4.0),
+        detectors.spectral_residual(factor=4.0),
         HampelScorer(window=9, center=False),
-        HampelDetector(window=9, factor=4.0, center=False),
+        detectors.hampel(window=9, factor=4.0, center=False),
         RollingQuantileScorer(window=8, low=0.1, high=0.8),
         PeltScorer(penalty=2.0, cost="l1", min_size=3, jump=2),
-        PeltDetector(penalty=2.0, cost="l1", min_size=3, jump=2),
+        detectors.pelt(penalty=2.0, cost="l1", min_size=3, jump=2),
         RupturesScorer(model="window", cost="l1", n_bkps=2),
         MatrixProfileScorer(window=8, normalize=False),
-        MatrixProfileDetector(window=8, factor=5.0),
+        detectors.matrix_profile(window=8, factor=5.0),
         DampScorer(window=8, normalize=False),
         StlResidualScorer(period=12, robust=False, seasonal=9),
-        StlDetector(period=12, robust=False, seasonal=9, factor=5.0),
+        detectors.stl(period=12, robust=False, seasonal=9, factor=5.0),
         MstlResidualScorer(periods=(12, 24), robust=False),
-        MstlDetector(periods=(12, 24), robust=False, factor=5.0),
+        detectors.mstl(periods=(12, 24), robust=False, factor=5.0),
     ]
     for component in components:
-        assert component.clone().get_params() == component.get_params()
+        clone = component.clone()
+        assert repr(clone) == repr(component)
+        assert _plain(clone.get_params()) == _plain(component.get_params())
         assert type(component).__name__ in repr(component)
 
 
-def test_the_methods_package_exports_everything_it_advertises() -> None:
-    import hazure.methods as methods
+def _plain(params: dict[str, Any]) -> dict[str, Any]:
+    """Drop nested components, which compare by identity, from a parameter dict."""
+    return {k: v for k, v in params.items() if not isinstance(v, Component)}
 
-    for name in methods.__all__:
-        assert hasattr(methods, name)
+
+def test_the_scorer_and_detector_packages_export_what_they_advertise() -> None:
+    import hazure.detectors as detector_presets
+    import hazure.scorers as scorers
+
+    for module in (scorers, detector_presets):
+        for name in module.__all__:
+            assert hasattr(module, name)

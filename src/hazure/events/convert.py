@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from hazure import TimeSeries, parse_duration
+from hazure._core import TimeSeries, parse_duration
 from hazure._core.missing import as_flags
 from hazure.events.interval import Events
 

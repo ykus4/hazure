@@ -18,18 +18,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hazure import FixedThreshold, Pipeline, Stream, TimeSeries
-from hazure.detection import (
-    AutoregressionDetector,
-    IqrDetector,
-    LevelShiftDetector,
-    SeasonalDetector,
-    SpikeDetector,
-)
-from hazure.features import RollingAggregate
-from hazure.methods import HampelDetector
-from hazure.scoring import DeviationScorer
-from hazure.thresholds import IqrThreshold
+from hazure import Detector, Pipeline, Stream, TimeSeries, detectors
+from hazure.scorers import DeviationScorer
+from hazure.thresholds import FixedThreshold, IqrThreshold
+from hazure.transformers import RollingAggregate
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -65,10 +57,10 @@ def after(series: pd.Series | pd.DataFrame, hours: int = 1) -> pd.Timestamp:
     return pd.Timestamp(series.index[-1]) + pd.Timedelta(hours=hours)
 
 
-def spiky() -> tuple[pd.Series, SpikeDetector]:
+def spiky() -> tuple[pd.Series, Detector]:
     """A series and a spike detector already fitted on it."""
     series = noisy(200)
-    return series, SpikeDetector(window=12).fit(series)
+    return series, detectors.spike(window=12).fit(series)
 
 
 def _causal() -> list[tuple[str, Any, int]]:
@@ -80,11 +72,11 @@ def _causal() -> list[tuple[str, Any, int]]:
     every step consumes.
     """
     return [
-        ("spike", SpikeDetector(window=24), 48),
-        ("autoregression", AutoregressionDetector(n_steps=3), 24),
-        ("hampel trailing", HampelDetector(window=11, center=False), 24),
-        ("seasonal", SeasonalDetector(period=24), 72),
-        ("iqr", IqrDetector(), 4),
+        ("spike", detectors.spike(window=24), 48),
+        ("autoregression", detectors.autoregression(n_steps=3), 24),
+        ("hampel trailing", detectors.hampel(window=11, center=False), 24),
+        ("seasonal", detectors.seasonal(period=24), 72),
+        ("iqr", detectors.iqr(), 4),
         (
             "pipeline",
             Pipeline(
@@ -103,9 +95,9 @@ def _forward_looking() -> list[tuple[str, Any, int]]:
     """Components whose answer for a row reads rows after it."""
     return [
         # The window is centred by default, so half of it lies in the future.
-        ("hampel centred", HampelDetector(window=11), 24),
+        ("hampel centred", detectors.hampel(window=11), 24),
         # Two windows, one either side of each point: the right one is forward.
-        ("level shift", LevelShiftDetector(window=6), 24),
+        ("level shift", detectors.level_shift(window=6), 24),
     ]
 
 
@@ -133,7 +125,7 @@ def test_the_streaming_answer_equals_the_batch_answer(
 def test_one_observation_at_a_time_matches_a_streamed_batch() -> None:
     """``update_many`` is a loop over ``update``, and says so."""
     whole = noisy(200)
-    fitted = SpikeDetector(window=12).fit(whole.iloc[:120])
+    fitted = detectors.spike(window=12).fit(whole.iloc[:120])
     past, future = whole.iloc[:-10], whole.iloc[-10:]
 
     stepwise = Stream(fitted, history=24).prime(past)
@@ -173,13 +165,13 @@ def test_prime_refuses_a_forward_looking_component() -> None:
     """
     series = noisy(120)
     with pytest.raises(ValueError, match="cannot be streamed: it reads"):
-        Stream(HampelDetector(window=11), history=24).prime(series)
+        Stream(detectors.hampel(window=11), history=24).prime(series)
 
 
 def test_a_forward_looking_component_can_still_be_streamed_without_the_check() -> None:
     """``check=False`` is the caller taking responsibility, and it is honoured."""
     series = noisy(120)
-    stream = Stream(HampelDetector(window=11), history=24).prime(series, check=False)
+    stream = Stream(detectors.hampel(window=11), history=24).prime(series, check=False)
     assert np.isnan(stream.update(after(series), 100.0))
 
 
@@ -234,14 +226,14 @@ def test_a_numpy_integer_counts_as_a_count_of_samples() -> None:
 
 
 def test_streaming_an_unfitted_component_is_refused() -> None:
-    stream = Stream(SpikeDetector(window=6), history=12)
+    stream = Stream(detectors.spike(window=6), history=12)
     with pytest.raises(RuntimeError, match="must be fitted"):
         stream.update("2024-01-01T00:00", {"rps": 100.0})
 
 
 def test_priming_an_unfitted_component_is_refused() -> None:
     with pytest.raises(RuntimeError, match="must be fitted"):
-        Stream(SpikeDetector(window=6), history=12).prime(noisy(100))
+        Stream(detectors.spike(window=6), history=12).prime(noisy(100))
 
 
 # -- prime ------------------------------------------------------------------
@@ -249,9 +241,9 @@ def test_priming_an_unfitted_component_is_refused() -> None:
 
 def test_prime_refuses_a_history_too_short_for_the_component() -> None:
     series = noisy(200)
-    detector = SpikeDetector(window=24).fit(series)
+    detector = detectors.spike(window=24).fit(series)
 
-    with pytest.raises(ValueError, match="too short for SpikeDetector") as raised:
+    with pytest.raises(ValueError, match="too short for Detector") as raised:
         Stream(detector, history=5).prime(series)
 
     message = str(raised.value)
@@ -270,7 +262,7 @@ def test_prime_returns_self_for_chaining() -> None:
 def test_prime_can_skip_the_check() -> None:
     """A history the check would reject is accepted when nobody asks."""
     series = noisy(200)
-    detector = SpikeDetector(window=24).fit(series)
+    detector = detectors.spike(window=24).fit(series)
     stream = Stream(detector, history=5).prime(series, check=False)
     assert stream.buffer.n_rows == 5
 
@@ -278,7 +270,7 @@ def test_prime_can_skip_the_check() -> None:
 def test_prime_skips_the_check_when_nothing_was_truncated() -> None:
     """Nothing was dropped, so there is no shorter answer to disagree with."""
     series = noisy(30)
-    detector = SpikeDetector(window=24).fit(series)
+    detector = detectors.spike(window=24).fit(series)
     stream = Stream(detector, history=1000).prime(series)
     assert stream.buffer.n_rows == 30
 
@@ -289,7 +281,7 @@ def test_prime_skips_the_check_when_nothing_was_truncated() -> None:
 def test_a_duration_history_retains_by_time_span() -> None:
     """A 12-hour span over hourly samples is 13 of them, ends included."""
     series = noisy(100)
-    stream = Stream(IqrDetector().fit(series), history="12h").prime(series)
+    stream = Stream(detectors.iqr().fit(series), history="12h").prime(series)
     assert stream.buffer.n_rows == 13
 
 
@@ -308,7 +300,7 @@ def test_a_duration_history_retains_by_time_span_on_an_irregular_axis() -> None:
     )
     series = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], index=index, name="rps")
 
-    stream = Stream(IqrDetector().fit(series), history="12h").prime(series)
+    stream = Stream(detectors.iqr().fit(series), history="12h").prime(series)
 
     assert stream.buffer.n_rows == 3
     np.testing.assert_array_equal(stream.buffer.values.ravel(), [4.0, 5.0, 6.0])
@@ -317,14 +309,14 @@ def test_a_duration_history_retains_by_time_span_on_an_irregular_axis() -> None:
 def test_a_duration_history_survives_being_primed_with_nothing() -> None:
     """There is no newest observation to measure a span back from."""
     series = noisy(100)
-    stream = Stream(IqrDetector().fit(series), history="6h").prime(series.iloc[:0])
+    stream = Stream(detectors.iqr().fit(series), history="6h").prime(series.iloc[:0])
     assert stream.buffer.n_rows == 0
     assert stream.n_seen == 0
 
 
 def test_a_duration_history_trims_the_buffer_as_observations_arrive() -> None:
     series = noisy(100)
-    stream = Stream(IqrDetector().fit(series), history="6h").prime(series)
+    stream = Stream(detectors.iqr().fit(series), history="6h").prime(series)
     assert stream.buffer.n_rows == 7
 
     stream.update(after(series), 100.0)
@@ -392,7 +384,7 @@ def test_update_refuses_something_that_is_not_an_observation() -> None:
 
 def test_update_refuses_one_number_for_a_multi_column_component() -> None:
     twin = two_columns()
-    detector = SpikeDetector(window=12).fit(twin)
+    detector = detectors.spike(window=12).fit(twin)
     stream = Stream(detector, history=24).prime(twin)
     with pytest.raises(ValueError, match=r"one number, but this component tracks"):
         stream.update(after(twin), 100.0)
@@ -415,7 +407,7 @@ def test_an_unprimed_stream_takes_a_bare_number_for_a_named_column() -> None:
 
 def test_a_stream_fans_out_over_the_columns_a_component_was_fitted_on() -> None:
     twin = two_columns()
-    detector = SpikeDetector(window=12).fit(twin)
+    detector = detectors.spike(window=12).fit(twin)
     assert detector.feature_names == ("a", "b")
 
     stream = Stream(detector, history=24).prime(twin)
@@ -428,7 +420,7 @@ def test_a_stream_fans_out_over_the_columns_a_component_was_fitted_on() -> None:
 
 def test_update_many_returns_one_verdict_column_per_tracked_column() -> None:
     twin = two_columns()
-    detector = SpikeDetector(window=12).fit(twin)
+    detector = detectors.spike(window=12).fit(twin)
     stream = Stream(detector, history=24).prime(twin)
 
     later = pd.DataFrame(
@@ -444,7 +436,7 @@ def test_update_many_returns_one_verdict_column_per_tracked_column() -> None:
 
 def test_a_too_short_history_reports_every_column_that_disagrees() -> None:
     twin = two_columns()
-    detector = SpikeDetector(window=24).fit(twin)
+    detector = detectors.spike(window=24).fit(twin)
     with pytest.raises(ValueError, match=r"comes out as \[nan, nan\] rather than"):
         Stream(detector, history=5).prime(twin)
 
@@ -491,7 +483,7 @@ def test_the_first_observation_settles_the_columns() -> None:
 
 def test_n_seen_counts_primed_rows_and_updates() -> None:
     series = noisy(100)
-    detector = SpikeDetector(window=6).fit(series)
+    detector = detectors.spike(window=6).fit(series)
     stream = Stream(detector, history=12)
     assert stream.n_seen == 0
 
@@ -504,7 +496,7 @@ def test_n_seen_counts_primed_rows_and_updates() -> None:
 
 def test_buffer_holds_the_retained_rows() -> None:
     series = noisy(100)
-    detector = SpikeDetector(window=6).fit(series)
+    detector = detectors.spike(window=6).fit(series)
     stream = Stream(detector, history=12).prime(series)
 
     buffered = stream.buffer
@@ -519,7 +511,7 @@ def test_buffer_holds_the_retained_rows() -> None:
 
 def test_repr_mentions_the_buffered_count() -> None:
     series = noisy(100)
-    detector = SpikeDetector(window=6).fit(series)
+    detector = detectors.spike(window=6).fit(series)
     rendered = repr(Stream(detector, history=12).prime(series))
     assert "buffered=12" in rendered
     assert "n_seen=100" in rendered
@@ -533,7 +525,7 @@ def test_update_many_returns_the_backend_it_was_given(
 ) -> None:
     rng = np.random.default_rng(2)
     past = native_factory(100.0 + rng.normal(0, 1, 60))
-    detector = SpikeDetector(window=6).fit(past)
+    detector = detectors.spike(window=6).fit(past)
     stream = Stream(detector, history=12).prime(past)
 
     later = native_factory(100.0 + rng.normal(0, 1, 5), start="2024-01-04")
@@ -545,7 +537,7 @@ def test_update_many_returns_the_backend_it_was_given(
 
 def test_update_many_accepts_an_empty_batch() -> None:
     series = noisy(100)
-    detector = SpikeDetector(window=6).fit(series)
+    detector = detectors.spike(window=6).fit(series)
     stream = Stream(detector, history=12).prime(series)
 
     verdicts = stream.update_many(series.iloc[:0])
@@ -560,12 +552,13 @@ def test_update_many_accepts_an_empty_batch() -> None:
 def test_a_primed_stream_survives_a_round_trip_through_json() -> None:
     """A running monitor is stored whole: the fit, and the past it was judging."""
     series = noisy(200)
-    detector = SpikeDetector(window=12).fit(series)
+    detector = detectors.spike(window=12).fit(series)
     stream = Stream(detector, history=24).prime(series)
 
     resumed = Stream.from_dict(json.loads(json.dumps(stream.to_dict())))
 
-    assert isinstance(resumed.component, SpikeDetector)
+    assert isinstance(resumed.component, Detector)
+    assert repr(resumed.component) == repr(detector)
     assert resumed.component.fitted
     assert resumed.history == 24
     assert resumed.n_seen == stream.n_seen
@@ -582,7 +575,7 @@ def test_a_primed_stream_survives_a_round_trip_through_json() -> None:
 def test_a_timedelta_history_cannot_be_serialised() -> None:
     """A documented limitation: a timedelta has no JSON representation."""
     series = noisy(100)
-    detector = SpikeDetector(window=6).fit(series)
+    detector = detectors.spike(window=6).fit(series)
     stream = Stream(detector, history=timedelta(hours=12)).prime(series, check=False)
     with pytest.raises(TypeError, match="cannot serialise"):
         stream.to_dict()
@@ -590,7 +583,7 @@ def test_a_timedelta_history_cannot_be_serialised() -> None:
 
 def test_a_string_history_serialises_where_a_timedelta_does_not() -> None:
     series = noisy(100)
-    detector = SpikeDetector(window=6).fit(series)
+    detector = detectors.spike(window=6).fit(series)
     stream = Stream(detector, history="12h").prime(series)
     resumed = Stream.from_dict(json.loads(json.dumps(stream.to_dict())))
     assert resumed.history == "12h"

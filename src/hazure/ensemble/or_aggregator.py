@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from hazure import BaseAggregator
+from hazure._core import Aggregator
 from hazure.ensemble.states import _states
 
 if TYPE_CHECKING:
-    from hazure import TimeSeries
+    from hazure._core import TimeSeries
 
 
 __all__ = [
@@ -18,7 +18,7 @@ __all__ = [
 ]
 
 
-class OrAggregator(BaseAggregator):
+class OrAggregator(Aggregator):
     """Flag a point that any input flags.
 
     The union of the inputs: use it to collect several kinds of anomaly — a
@@ -39,7 +39,7 @@ class OrAggregator(BaseAggregator):
     [1.0, 1.0, nan, 1.0]
     """
 
-    def _combine(self, ts: TimeSeries) -> TimeSeries:
+    def _compute(self, ts: TimeSeries) -> TimeSeries:
         anomalous, unknown = _states(ts.values)
         combined = np.where(
             anomalous.any(axis=1), 1.0, np.where(unknown.any(axis=1), np.nan, 0.0)

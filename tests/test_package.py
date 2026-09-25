@@ -8,9 +8,11 @@ time and so quietly breaks the "narwhals and numpy only" promise the README make
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
 from importlib.metadata import version
+from pathlib import Path
 
 import pytest
 
@@ -20,16 +22,17 @@ MODULES = (
     "hazure.calibration",
     "hazure.compose",
     "hazure.datasets",
-    "hazure.detection",
+    "hazure.detectors",
     "hazure.ensemble",
     "hazure.evaluation",
     "hazure.events",
-    "hazure.features",
-    "hazure.methods",
-    "hazure.scoring",
+    "hazure.scorers",
     "hazure.streaming",
     "hazure.thresholds",
+    "hazure.transformers",
 )
+
+PACKAGE = Path(hazure.__file__).parent
 
 OPTIONAL = (
     "matplotlib",
@@ -59,18 +62,29 @@ def test_all_has_no_duplicates() -> None:
 
 
 @pytest.mark.parametrize("module", MODULES)
-def test_submodule_all_is_reexported_from_the_package(module: str) -> None:
-    """Names a subject module publishes are reachable from ``hazure`` itself.
-
-    ``hazure.datasets`` is deliberately exempt: it is sample data for trying
-    things out, not part of the detection API, and ``compare`` is too generic a
-    name to put in the top-level namespace.
-    """
+def test_every_name_a_submodule_promises_exists(module: str) -> None:
     imported = __import__(module, fromlist=["__all__"])
-    if module == "hazure.datasets":
-        pytest.skip("datasets is documented as reachable only through its module")
-    unexported = [name for name in imported.__all__ if name not in set(hazure.__all__)]
-    assert unexported == []
+    missing = [name for name in imported.__all__ if not hasattr(imported, name)]
+    assert missing == []
+    assert len(imported.__all__) == len(set(imported.__all__))
+
+
+def test_no_module_inside_the_package_imports_from_the_package_root() -> None:
+    """Internal imports go through ``hazure._core`` or the owning subpackage.
+
+    Importing from ``hazure`` itself would make a module's import depend on the
+    order ``hazure/__init__.py`` lists things in, which is how a circular import
+    appears after an innocent reordering. Docstring examples are exempt: they run
+    after the package has loaded, and show what a user would write.
+    """
+    offenders = []
+    for path in sorted(PACKAGE.rglob("*.py")):
+        if path == PACKAGE / "__init__.py":
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ImportFrom) and node.module == "hazure":
+                offenders.append(f"{path.relative_to(PACKAGE)}:{node.lineno}")
+    assert offenders == []
 
 
 def test_importing_hazure_pulls_in_nothing_optional() -> None:

@@ -1,7 +1,8 @@
 # Method families
 
-`hazure.methods` collects the techniques that are families of their own rather
-than variations on the rolling comparison. Three of them — spectral residual,
+This page covers the scorers in `hazure.scorers` that are families of their own
+rather than variations on the rolling comparison, and the presets in
+`hazure.detectors` built on them. Three of them — spectral residual,
 Hampel and PELT — need nothing but numpy. The rest are adapters over a backend,
 imported lazily, and each says how to install itself if it is missing.
 
@@ -69,8 +70,8 @@ s_t = \frac{d_t}{\hat{\sigma}_t}
 $$
 
 The score is in **local robust standard deviations**, already interpretable,
-which is why `HampelDetector` pairs it with a `FixedThreshold(high=factor)` and
-is `trainable=False`: it needs no fit, and the conventional $3\sigma$ means what
+which is why `detectors.hampel` pairs it with a `FixedThreshold(high=factor)` and
+is untrainable: it needs no fit, and the conventional $3\sigma$ means what
 it usually means. See [MadThreshold](thresholds.md#madthreshold) for where 1.4826
 comes from.
 
@@ -106,7 +107,7 @@ with, so the score understates it. Widening the window dilutes that; excluding
 the point would remove it, at the cost of a band that reacts to a level change
 one window later.
 
-That same inclusion is why `RollingQuantileDetector` fits an IQR fence on the
+That same inclusion is why `detectors.rolling_quantile` fits an IQR fence on the
 excursions rather than reporting every point that leaves the band. On a series
 with a trend the newest observation is routinely the largest in its own window,
 and so sits *at* the band's edge and a little outside it. Treating any non-zero
@@ -195,7 +196,7 @@ s_t = \begin{cases}
 \end{cases}
 $$
 
-with the level being a median for `"l1"` and a mean for `"l2"`. `PeltDetector`
+with the level being a median for `"l1"` and a mean for `"l2"`. `detectors.pelt`
 thresholds it at `FixedThreshold(high=0.0)`, so every breakpoint with a non-zero
 measured change is flagged, and the penalty — not a fence — controls how many
 there are.
@@ -204,7 +205,7 @@ Breakpoints are stored as **timestamps** and relocated by timestamp when scoring
 a different series, not by position, so an axis that starts elsewhere still lines
 up.
 
-### RupturesScorer and RupturesDetector
+### RupturesScorer and `detectors.ruptures`
 
 An adapter over [ruptures](https://centre-borelli.github.io/ruptures-docs/) for
 the search strategies not implemented here: `binseg` (greedy binary
@@ -219,8 +220,8 @@ instead of a penalty. Needs `pip install hazure[cpd]`, which requires Python
 below 3.14; on newer interpreters `PeltScorer` covers the mean-shift case with no
 dependency at all.
 
-`RupturesDetector` pairs it with `FixedThreshold(high=0.0)`, exactly as
-`PeltDetector` does — with no factor to tune, because the search has already
+`detectors.ruptures` pairs it with `FixedThreshold(high=0.0)`, exactly as
+`detectors.pelt` does — with no factor to tune, because the search has already
 decided which changes earn a segment. Second-guessing that with a rule on the
 score would answer the same question twice, with less information. Report fewer
 changes by raising `penalty`, or by naming `n_bkps`.
@@ -257,7 +258,7 @@ flagged region is $m$ points wide. Maximum rather than mean, because a point
 inside one strange window is worth flagging even if its other windows are
 ordinary.
 
-`DampScorer`, and `DampDetector` pairing it with the same IQR fence, restrict
+`DampScorer`, and `detectors.damp` pairing it with the same IQR fence, restrict
 that comparison to the past — each subsequence is judged against its nearest
 neighbour that **started earlier**, so a novel shape scores high the first time it
 occurs rather than being explained away by its own later recurrence. That is the
@@ -276,8 +277,8 @@ $$
 x_t = T_t + S_t + R_t, \qquad s_t = |R_t|
 $$
 
-Compared with the [seasonal profile](univariate.md#seasonal-residual) in
-`hazure.scoring`, STL buys a **seasonal shape that is allowed to evolve** and a
+Compared with the [seasonal profile](univariate.md#seasonal-residual) of
+`SeasonalDecomposition`, STL buys a **seasonal shape that is allowed to evolve** and a
 loess trend rather than a moving average — worth it when the daily pattern in
 December is not the one from June. `robust=True`, the default, adds
 iteratively-reweighted fitting so that the anomalies you are looking for do not

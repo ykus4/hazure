@@ -47,11 +47,11 @@ jobs:
           import sys
           import numpy as np
           import hazure
-          from hazure import (
-              PotThreshold, SpikeDetector, Stream, TimeSeries, budget_threshold,
-          )
+          from hazure import Stream, TimeSeries, detectors
+          from hazure.calibration import budget_threshold
           from hazure.datasets import compare, make_series
-          from hazure.scoring import DeviationScorer
+          from hazure.scorers import DeviationScorer
+          from hazure.thresholds import PotThreshold
 
           forbidden = {'pandas', 'polars', 'pyarrow', 'scipy', 'sklearn',
                        'matplotlib', 'statsmodels', 'stumpy', 'ruptures', 'numba'}
@@ -63,7 +63,7 @@ jobs:
           values[2000] = 40.0
           series = TimeSeries.from_arrays(time, values)
 
-          detector = SpikeDetector(window=24).fit(series)
+          detector = detectors.spike(window=24).fit(series)
           assert detector.detect(series).n_rows == 4000
 
           # Streaming, the EVT fence, calibration and the sample data all reach
@@ -78,7 +78,7 @@ jobs:
 
           planted = make_series('spike', n=1000, n_anomalies=2)
           assert planted.events.n_events == 2
-          assert 'recall' in compare({'s': SpikeDetector(window=24)}, planted)['s']
+          assert 'recall' in compare({'s': detectors.spike(window=24)}, planted)['s']
 
           assert not forbidden & set(sys.modules), forbidden & set(sys.modules)
           print('ok:', hazure.__version__)

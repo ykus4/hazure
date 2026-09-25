@@ -25,30 +25,32 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from hazure._core.component import (
-    BaseAggregator,
-    BaseDetector,
-    BaseScorer,
-    BaseThreshold,
-    BaseTransformer,
-    Component,
-)
+from hazure._core.component import Component
 from hazure._core.series import TimeSeries
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+
+    from hazure._core.component import OutputKind
 
 __all__ = ["Graph", "Node", "Pipeline"]
 
 #: Reserved node name standing for the data handed to :meth:`Graph.fit`.
 SOURCE = "input"
 
+#: The verbs each kind of output answers to, the most descriptive first.
+_VERBS: dict[str, tuple[str, ...]] = {
+    "score": ("score",),
+    "series": ("transform",),
+    "labels": ("detect", "apply"),
+}
+
 # Phrasing for error messages, so a redirect says what the structure produces
 # rather than only naming a method.
 _OUTPUT_DESCRIPTION: dict[str, str] = {
     "score": "continuous scores",
-    "transform": "a transformed series",
-    "detect": "binary labels",
+    "series": "a transformed series",
+    "labels": "binary labels",
 }
 
 
@@ -60,7 +62,6 @@ class _Composite(Component):
     thing, and says which verb to use instead.
     """
 
-    trainable: ClassVar[bool] = True
     # A composite takes whatever it is given and lets each part decide: a
     # univariate step fans out over columns on its own, and a multivariate step
     # needs them all. Fanning out at the composite level would deny the second
@@ -68,54 +69,37 @@ class _Composite(Component):
     multivariate: ClassVar[bool] = True
 
     @property
-    def terminal(self) -> Component | BaseAggregator:
+    def terminal(self) -> Component:
         """The component whose output is this structure's output."""
         raise NotImplementedError
 
-    def clone(self) -> Any:
-        """Return an unfitted copy, with every contained component also cloned.
-
-        The default implementation only clones parameters that are themselves
-        components; a composite holds its parts inside a list, so it has to
-        recurse itself or the copy would share fitted state with the original.
-
-        Returns
-        -------
-        _Composite
-            A fresh, unfitted structure.
-        """
-        raise NotImplementedError
+    @property
+    def is_trainable(self) -> bool:
+        """True when any part has something to learn."""
+        return any(part.is_trainable for part in self._parts().values())
 
     @property
-    def output_kind(self) -> str:
-        """Name of the verb that best describes this structure's output.
+    def output_kind(self) -> OutputKind:
+        """What the terminal component emits.
 
         What matters is the *kind of thing* the last component emits, not which
         class it happens to be. A structure ending in a threshold emits binary
-        labels, which makes it a detector as far as a caller is concerned, so it
-        reports ``"detect"`` — though ``apply()`` is accepted too, for when the
-        thresholding is the point.
+        labels, which makes it a detector as far as a caller is concerned.
 
         Returns
         -------
         str
-            One of ``"score"``, ``"transform"``, ``"detect"``.
+            One of ``"score"``, ``"labels"``, ``"series"``.
         """
-        return self._verbs()[0]
+        return self.terminal.output_kind
+
+    def _parts(self) -> dict[str, Component]:
+        """Name the parts, so ``set_params(part__param=...)`` reaches them."""
+        raise NotImplementedError
 
     def _verbs(self) -> tuple[str, ...]:
         """Return the accepted verbs, most descriptive first."""
-        end = self.terminal
-        if isinstance(end, BaseAggregator | BaseDetector):
-            return ("detect",)
-        if isinstance(end, BaseThreshold):
-            return ("detect", "apply")
-        if isinstance(end, BaseScorer):
-            return ("score",)
-        if isinstance(end, BaseTransformer):
-            return ("transform",)
-        msg = f"{type(end).__name__} is not a recognised component type."
-        raise TypeError(msg)
+        return _VERBS[self.output_kind]
 
     def _require(self, verb: str) -> None:
         """Fail with a redirect when the caller used a verb that cannot apply."""
@@ -125,7 +109,7 @@ class _Composite(Component):
             msg = (
                 f"This {type(self).__name__} ends in "
                 f"{type(self.terminal).__name__}, which produces "
-                f"{_OUTPUT_DESCRIPTION[primary]}, so call {primary}() or "
+                f"{_OUTPUT_DESCRIPTION[self.output_kind]}, so call {primary}() or "
                 f"fit_{primary}() rather than {verb}()."
             )
             raise TypeError(msg)
@@ -145,12 +129,12 @@ class _Composite(Component):
         return self._fit_emit(data)
 
     def apply(self, data: Any) -> Any:
-        """Label ``data``; valid when this structure ends in a threshold."""
+        """Label ``data``; valid when this structure ends in labels."""
         self._require("apply")
         return self._emit(data)
 
     def fit_apply(self, data: Any) -> Any:
-        """Fit on ``data`` and label it; valid when it ends in a threshold."""
+        """Fit on ``data`` and label it; valid when it ends in labels."""
         self._require("apply")
         return self._fit_emit(data)
 
@@ -165,7 +149,7 @@ class _Composite(Component):
         return self._fit_emit(data)
 
     def detect(self, data: Any) -> Any:
-        """Detect anomalies in ``data``; valid when it ends in a detector."""
+        """Detect anomalies in ``data``; valid when it ends in labels."""
         self._require("detect")
         return self._emit(data)
 
@@ -203,19 +187,35 @@ class Pipeline(_Composite):
     ValueError
         ``steps`` is empty, or a name is repeated.
 
+    Notes
+    -----
+    Steps are reachable by name for reconfiguration and grid search:
+    ``set_params(score__center="mean")`` reaches the step named ``score``.
+
     Examples
     --------
-    Chain a feature, a score and a cut-off, then use it as one detector:
+    Chain a feature, a score and a cut-off, fit it on a clean month and use it
+    as one detector on the next:
 
-    >>> from hazure import Pipeline                      # doctest: +SKIP
-    >>> model = Pipeline(                                # doctest: +SKIP
+    >>> import numpy as np
+    >>> from hazure import TimeSeries
+    >>> from hazure.scorers import DeviationScorer
+    >>> from hazure.thresholds import IqrThreshold
+    >>> from hazure.transformers import SeasonalDecomposition
+    >>> rng = np.random.default_rng(0)
+    >>> time = np.arange("2024-01-01", "2024-02-02", dtype="datetime64[D]")
+    >>> values = np.tile([1.0, 5.0, 3.0, 2.0], 8) + rng.normal(scale=0.1, size=32)
+    >>> model = Pipeline(
     ...     [
-    ...         ("deseasonalise", SeasonalDecomposition(period=24)),
+    ...         ("deseasonalise", SeasonalDecomposition(period=4)),
     ...         ("score", DeviationScorer()),
     ...         ("cut", IqrThreshold(factor=3.0)),
     ...     ]
-    ... )
-    >>> anomalies = model.fit_detect(series)             # doctest: +SKIP
+    ... ).fit(TimeSeries.from_arrays(time, values))
+    >>> values[13] = 12.0
+    >>> labels = model.detect(TimeSeries.from_arrays(time, values))
+    >>> np.flatnonzero(labels.values.ravel() == 1.0)
+    array([13])
     """
 
     def __init__(self, steps: Sequence[tuple[str, Component]]) -> None:
@@ -234,42 +234,28 @@ class Pipeline(_Composite):
             _check_is_component(component, "Step", name)
 
     @property
-    def terminal(self) -> Component | BaseAggregator:
+    def terminal(self) -> Component:
         """The last step's component."""
-        end: Component | BaseAggregator = self.steps[-1][1]
+        end: Component = self.steps[-1][1]
         return end
 
-    def named_steps(self) -> dict[str, Component | BaseAggregator]:
+    def named_steps(self) -> dict[str, Component]:
         """Return the steps as a mapping, for reaching a fitted sub-component."""
         return dict(self.steps)
 
-    def clone(self) -> Pipeline:
-        """Return an unfitted copy whose steps are themselves fresh clones.
-
-        Returns
-        -------
-        Pipeline
-            A fresh, unfitted pipeline.
-        """
-        return Pipeline([(name, component.clone()) for name, component in self.steps])
+    def _parts(self) -> dict[str, Component]:
+        return dict(self.steps)
 
     def _learn(self, ts: TimeSeries) -> None:
         """Fit each step on the output of the one before it."""
         self._validate()
         current = ts
         for _, component in self.steps:
-            if isinstance(component, BaseAggregator):
-                msg = (
-                    "An aggregator takes several inputs, so it cannot sit in a "
-                    "Pipeline. Use a Graph instead."
-                )
-                raise TypeError(msg)
             current = component.fit(current).run(current)
 
     def _compute(self, ts: TimeSeries) -> TimeSeries:
         current = ts
         for _, component in self.steps:
-            assert isinstance(component, Component)
             current = component.run(current)
         return current
 
@@ -282,7 +268,7 @@ class Pipeline(_Composite):
             One line per step, in execution order.
         """
         width = max(len(name) for name, _ in self.steps)
-        lines = [f"Pipeline: {len(self.steps)} step(s) -> {self.output_kind}()"]
+        lines = [f"Pipeline: {len(self.steps)} step(s) -> {self._verbs()[0]}()"]
         lines += [
             f"  {i}. {name:<{width}}  {component!r}"
             for i, (name, component) in enumerate(self.steps, start=1)
@@ -320,7 +306,7 @@ class Node:
     inputs
         Names of the nodes feeding this one, or ``"input"`` for the source data.
         Several inputs are joined on the time axis before the component sees
-        them; an aggregator receives them as separate labelled columns.
+        them, as separate labelled columns.
     columns
         Optional per-input column selection, same length as ``inputs``. ``None``
         in a position means "every column from that input". Selecting a single
@@ -329,7 +315,7 @@ class Node:
     """
 
     name: str
-    model: Component | BaseAggregator
+    model: Component
     inputs: tuple[str, ...] = (SOURCE,)
     columns: tuple[Sequence[str] | None, ...] | None = None
 
@@ -370,19 +356,31 @@ class Graph(_Composite):
         Names repeat, a named input does not exist, the graph has a cycle, or
         more than one node is left unconsumed so the output would be ambiguous.
 
+    Notes
+    -----
+    Nodes are reachable by name for reconfiguration and grid search:
+    ``set_params(spike__threshold__side="positive")`` reaches the node named
+    ``spike``.
+
     Examples
     --------
     Require two independent signals to agree:
 
-    >>> from hazure import Graph, Node                    # doctest: +SKIP
-    >>> model = Graph(                                    # doctest: +SKIP
+    >>> import numpy as np
+    >>> from hazure import TimeSeries, detectors
+    >>> from hazure.ensemble import AndAggregator
+    >>> values = np.concatenate([np.zeros(30), np.full(30, 10.0)])
+    >>> time = np.arange(60) * np.timedelta64(1, "h") + np.datetime64("2024-01-01")
+    >>> model = Graph(
     ...     [
-    ...         Node("spike", SpikeDetector(window=5)),
-    ...         Node("shift", LevelShiftDetector(window=10)),
+    ...         Node("spike", detectors.spike(window=5)),
+    ...         Node("shift", detectors.level_shift(window=5)),
     ...         Node("both", AndAggregator(), inputs=("spike", "shift")),
     ...     ]
     ... )
-    >>> anomalies = model.fit_detect(series)              # doctest: +SKIP
+    >>> labels = model.fit_detect(TimeSeries.from_arrays(time, values))
+    >>> np.flatnonzero(labels.values.ravel() == 1.0)
+    array([30, 31, 32])
     """
 
     def __init__(self, nodes: Iterable[Node] | Mapping[str, Node]) -> None:
@@ -483,12 +481,15 @@ class Graph(_Composite):
         return order
 
     @property
-    def terminal(self) -> Component | BaseAggregator:
+    def terminal(self) -> Component:
         """The component whose output is the graph's output."""
         plan = self._resolve()
         return self._by_name()[plan.terminal].model
 
-    def named_nodes(self) -> dict[str, Component | BaseAggregator]:
+    def _parts(self) -> dict[str, Component]:
+        return {node.name: node.model for node in self.nodes}
+
+    def named_nodes(self) -> dict[str, Component]:
         """Return the nodes as a mapping, for reaching a fitted sub-component."""
         return {node.name: node.model for node in self.nodes}
 
@@ -615,7 +616,7 @@ class Graph(_Composite):
         width = max(len(n) for n in plan.order)
         lines = [
             f"Graph: {len(self.nodes)} node(s) -> "
-            f"{plan.terminal} -> {self.output_kind}()"
+            f"{plan.terminal} -> {self._verbs()[0]}()"
         ]
         for name in plan.order:
             node = lookup[name]
@@ -657,11 +658,8 @@ class Graph(_Composite):
 
 
 def _fit_and_run(node: Node, incoming: TimeSeries) -> TimeSeries:
-    """Fit a node's component if it can be fitted, then run it."""
-    model = node.model
-    if isinstance(model, BaseAggregator):
-        return model._combine(incoming)
-    return model.fit(incoming).run(incoming)
+    """Fit a node's component, then run it."""
+    return node.model.fit(incoming).run(incoming)
 
 
 def _check_unique_names(names: Sequence[str], kind: str) -> None:
@@ -700,9 +698,9 @@ def _check_is_component(model: Any, kind: str, name: str) -> None:
     Raises
     ------
     TypeError
-        ``model`` is not a component or an aggregator.
+        ``model`` is not a component.
     """
-    if not isinstance(model, Component | BaseAggregator):
+    if not isinstance(model, Component):
         msg = (
             f"{kind} {name!r} holds {type(model).__name__}, which is not a "
             f"hazure component."
@@ -712,10 +710,7 @@ def _check_is_component(model: Any, kind: str, name: str) -> None:
 
 def _run(node: Node, incoming: TimeSeries) -> TimeSeries:
     """Run a node's component on its resolved input."""
-    model = node.model
-    if isinstance(model, BaseAggregator):
-        return model._combine(incoming)
-    return model.run(incoming)
+    return node.model.run(incoming)
 
 
 def _chain_to_nodes(steps: Sequence[tuple[str, Component]]) -> list[Node]:

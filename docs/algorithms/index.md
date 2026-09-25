@@ -25,8 +25,9 @@ Three symbols recur:
 
 A score may be **signed**, in which case its magnitude carries the strength and
 its sign carries a direction — the value was above, or below, what was expected.
-Detectors built on a signed score threshold $|s_t|$ and then use the sign to
-honour `side`; see [sides](thresholds.md#sides).
+Detectors built on a signed score wrap their threshold in a `SignedThreshold`,
+which thresholds $|s_t|$ and then uses the sign to honour `side`; see
+[sides](thresholds.md#sides).
 
 ## The shape every detector has
 
@@ -38,9 +39,9 @@ x_t \;\xrightarrow[\text{transform}]{}\; \tilde{x}_t
 $$
 
 Only the middle two steps are compulsory, and even the first of *those* is
-optional: `IqrDetector`, `QuantileDetector`, `EsdDetector` and
-`ThresholdDetector` have no scorer at all, because the value is already the
-score.
+optional: `detectors.iqr`, `detectors.quantile`, `detectors.esd` and
+`detectors.limits` build a `Detector(None, threshold)` with no scorer at all,
+because the value is already the score.
 
 Two properties hold throughout, and both fall out of the arithmetic rather than
 being policy laid over it:
@@ -61,8 +62,9 @@ being policy laid over it:
   single- and double-window statistics most detectors are built from.
 - **[Univariate scores](univariate.md)** — deviation, seasonal residual,
   autoregressive residual.
-- **[Thresholds](thresholds.md)** — fixed, quantile, IQR, MAD, and the
-  generalized ESD test.
+- **[Thresholds](thresholds.md)** — fixed, quantile, IQR, MAD, the generalized
+  ESD test, and the signed wrapper that judges a magnitude and filters by
+  direction.
 - **[Multivariate scores](multivariate.md)** — regression residual, PCA
   reconstruction error, and the clustering and outlier-model adapters.
 - **[Method families](methods.md)** — spectral residual, Hampel, change-point

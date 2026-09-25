@@ -13,7 +13,7 @@ import pandas as pd
 import polars as pl
 import pytest
 
-from hazure._core import TimeSeries
+from hazure import TimeSeries
 from tests.conftest import BACKENDS, make_native
 
 VALUES = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]

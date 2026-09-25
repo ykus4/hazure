@@ -13,12 +13,12 @@ pip install hazure[pandas]
 ```python
 import numpy as np
 import pandas as pd
-from hazure.detection import SeasonalDetector
+from hazure import detectors
 
 index = pd.date_range("2024-03-01", periods=24 * 21, freq="h", name="time")
 traffic = pd.Series(100 + 40 * np.sin(np.arange(504) / 3.8), index=index, name="rps")
 
-labels = SeasonalDetector(period=24).fit_detect(traffic)
+labels = detectors.seasonal(period=24).fit_detect(traffic)
 ```
 
 `labels` sits on the same time axis as `traffic`: `1.0` anomalous, `0.0` normal,
@@ -27,21 +27,32 @@ labels = SeasonalDetector(period=24).fit_detect(traffic)
 
 ## Shape of the library
 
-Everything is one of five composable component types, each with `fit` plus one
-verb:
+Everything is a component with `fit` plus one verb:
 
 | Type | Takes | Gives | Verbs |
 | --- | --- | --- | --- |
 | `Scorer` | a series | a continuous score | `.score()`, `.fit_score()` |
 | `Threshold` | a score | binary labels | `.apply()`, `.fit_apply()` |
 | `Detector` | a series | binary labels | `.detect()`, `.fit_detect()` |
-| `Aggregator` | several label series | one label series | `.aggregate()` |
 | `Transformer` | a series | a series | `.transform()`, `.fit_transform()` |
+| `Aggregator` | several columns | one column | `.aggregate()` |
 
 Scoring and thresholding are separate because they answer separate questions:
 one threshold policy is reusable across every scorer, a scorer can be swapped
 without revisiting the policy, and a score is useful on its own for ranking.
-`Pipeline` chains components; `Graph` wires them when the model branches.
+A `Detector` is exactly one scorer and one threshold, and every function in
+`hazure.detectors` returns one — so a ready-made detector can be printed,
+reconfigured by name (`set_params(scorer__window=48)`) and stored, like one you
+assembled yourself. `Pipeline` chains components; `Graph` wires them when the
+model branches.
+
+| Module | Holds |
+| --- | --- |
+| `hazure.detectors` | ready-made detectors, one function per kind of anomaly |
+| `hazure.scorers` | continuous scores |
+| `hazure.thresholds` | turning a score into labels |
+| `hazure.transformers` | feature engineering and the rolling-window engine |
+| `hazure.ensemble` | combining several verdicts or scores |
 
 ## Where the dependencies sit
 
